@@ -1,0 +1,54 @@
+1 createInstance
+2 pickPhysicalDevice
+GPU: Apple M4
+3 createLogicalDevice
+Logical device created!
+4 createSurface
+Surface created!
+5 createSwapchain
+Swapchain created! Images: 3
+Depth resources created!
+6 createRenderPass
+Render pass created!
+6b createShadowResources
+Shadow resources created!
+6c createShadowRenderPass
+Shadow render pass created!
+6c2 createShadowDescriptorSetLayout
+Shadow descriptor set layout created!
+6d createShadowPipeline
+Shadow pipeline created!
+7 createFramebuffers
+Framebuffers created: 3
+8 createCommandPool
+Command pool created!
+9 createCommandBuffers
+Command buffers allocated: 3
+10 createSyncObjects
+Sync objects created!
+11 createTextureImage
+Loaded: /Users/jorgejunior/Documents/Game Engine/assets/albedo.png (1024x1024)
+Loaded: /Users/jorgejunior/Documents/Game Engine/assets/normal.png (1024x1024)
+Loaded: /Users/jorgejunior/Documents/Game Engine/assets/roughness.png (1024x1024)
+Loaded: /Users/jorgejunior/Documents/Game Engine/assets/metallic.png (1024x1024)
+PBR sampler created!
+15 createUniformBuffer
+16 createDescriptorPool
+17 createDescriptorSet
+6c1 createShadowDescriptorSet
+18 createGraphicsPipeline
+vertModule: 0xa2f1b1880
+fragModule: 0xa2f1b1960
+attribute count: 6
+pipelineLayout: 0xa2ed05a00
+renderPass: 0xa2f3e8e00
+descriptorSetLayout: 0xa2ee64380
+vkCreateGraphicsPipelines result: 0
+Graphics pipeline created!
+19 loading mesh
+Mesh loaded: 36 vertices, 36 indices
+20 createVertexBuffer
+Vertex buffer created!
+21 createIndexBuffer
+Index buffer created!
+Renderer ready!

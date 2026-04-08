@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
-project(MyEngine VERSION 0.1 LANGUAGES CXX)
+project(Titanium VERSION 0.1 LANGUAGES CXX)
+cmake_policy(SET CMP0177 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0177 NEW)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,45 +9,40 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 
 # ============================================================
-# GLM - Math
+# GLM - Math (Homebrew)
 # ============================================================
-FetchContent_Declare(
-  glm
-  GIT_REPOSITORY https://github.com/g-truc/glm.git
-  GIT_TAG 0.9.9.8
-)
+find_package(glm REQUIRED)
 
 # ============================================================
-# SDL2 - Windowing
+# SDL2 - Windowing (Homebrew)
 # ============================================================
-FetchContent_Declare(
-  SDL2
-  GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-  GIT_TAG release-2.28.5
-)
+find_package(SDL2 REQUIRED)
 
 # ============================================================
-# Assimp - Asset Loading
+# Assimp - Asset Loading (Homebrew)
 # ============================================================
-set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  assimp
-  GIT_REPOSITORY https://github.com/assimp/assimp.git
-  GIT_TAG v5.3.1
-)
+find_package(assimp REQUIRED)
 
 # ============================================================
-# Jolt Physics
+# ENet - Networking (Homebrew)
 # ============================================================
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ENET REQUIRED libenet)
+
+# ============================================================
+# Jolt Physics (FetchContent)
+# ============================================================
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_Declare(
   JoltPhysics
   GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
   GIT_TAG v4.0.2
+  SOURCE_SUBDIR "Build"
 )
+FetchContent_MakeAvailable(JoltPhysics)
 
 # ============================================================
-# Ozz-Animation
+# Ozz-Animation (FetchContent - has modern CMake, safe)
 # ============================================================
 set(ozz_build_samples OFF CACHE BOOL "" FORCE)
 set(ozz_build_tests OFF CACHE BOOL "" FORCE)
@@ -54,43 +51,43 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/guillaumeblanc/ozz-animation.git
   GIT_TAG 0.15.0
 )
+FetchContent_MakeAvailable(ozz)
 
 # ============================================================
-# ENet - Networking
+# Recast/Detour - Pathfinding (manual submodule)
+# third_party/recast via:
+# git submodule add https://github.com/recastnavigation/recastnavigation.git third_party/recast
 # ============================================================
-FetchContent_Declare(
-  enet
-  GIT_REPOSITORY https://github.com/lsalzman/enet.git
-  GIT_TAG v1.3.17
+set(RECAST_DIR ${CMAKE_SOURCE_DIR}/third_party/recast)
+
+add_library(Recast STATIC
+  ${RECAST_DIR}/Recast/Source/Recast.cpp
+  ${RECAST_DIR}/Recast/Source/RecastAlloc.cpp
+  ${RECAST_DIR}/Recast/Source/RecastArea.cpp
+  ${RECAST_DIR}/Recast/Source/RecastContour.cpp
+  ${RECAST_DIR}/Recast/Source/RecastFilter.cpp
+  ${RECAST_DIR}/Recast/Source/RecastLayers.cpp
+  ${RECAST_DIR}/Recast/Source/RecastMesh.cpp
+  ${RECAST_DIR}/Recast/Source/RecastMeshDetail.cpp
+  ${RECAST_DIR}/Recast/Source/RecastRasterization.cpp
+  ${RECAST_DIR}/Recast/Source/RecastRegion.cpp
 )
+target_include_directories(Recast PUBLIC ${RECAST_DIR}/Recast/Include)
 
-# ============================================================
-# Recast/Detour - Pathfinding
-# ============================================================
-set(RECASTNAVIGATION_DEMO OFF CACHE BOOL "" FORCE)
-set(RECASTNAVIGATION_TESTS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  recastnavigation
-  GIT_REPOSITORY https://github.com/recastnavigation/recastnavigation.git
-  GIT_TAG v1.6.0
+add_library(Detour STATIC
+  ${RECAST_DIR}/Detour/Source/DetourAlloc.cpp
+  ${RECAST_DIR}/Detour/Source/DetourCommon.cpp
+  ${RECAST_DIR}/Detour/Source/DetourNavMesh.cpp
+  ${RECAST_DIR}/Detour/Source/DetourNavMeshBuilder.cpp
+  ${RECAST_DIR}/Detour/Source/DetourNavMeshQuery.cpp
+  ${RECAST_DIR}/Detour/Source/DetourNode.cpp
 )
+target_include_directories(Detour PUBLIC ${RECAST_DIR}/Detour/Include)
 
 # ============================================================
-# Download & build all FetchContent libraries
-# ============================================================
-FetchContent_MakeAvailable(
-  glm
-  SDL2
-  assimp
-  JoltPhysics
-  ozz
-  enet
-  recastnavigation
-)
-
-# ============================================================
-# Dear ImGui - must be added manually as a static library
-# (run: git submodule add https://github.com/ocornut/imgui.git third_party/imgui)
+# Dear ImGui (manual submodule)
+# third_party/imgui via:
+# git submodule add https://github.com/ocornut/imgui.git third_party/imgui
 # ============================================================
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 
@@ -102,36 +99,58 @@ add_library(imgui STATIC
   ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
   ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
 )
+find_package(Vulkan REQUIRED)
 
 target_include_directories(imgui PUBLIC
   ${IMGUI_DIR}
   ${IMGUI_DIR}/backends
+  ${SDL2_INCLUDE_DIRS}
+  ${Vulkan_INCLUDE_DIRS}
 )
 
 # ============================================================
 # Your engine executable
 # ============================================================
-add_executable(MyEngine src/main.cpp)
+add_executable(Titanium
+  src/main.cpp
+  src/core/Engine.cpp
+  src/core/Window.cpp
+  src/core/Camera.cpp
+  src/renderer/Renderer.cpp
+  src/renderer/MeshLoader.cpp
+)
 
 # ============================================================
 # Link everything
 # ============================================================
-target_link_libraries(MyEngine PRIVATE
+# Link everything
+target_link_libraries(Titanium PRIVATE
   glm::glm
-  SDL2::SDL2
+  ${SDL2_LIBRARIES}
+  assimp::assimp
   imgui
-  assimp
   Jolt
   ozz_animation
   ozz_base
-  enet
+  /opt/homebrew/lib/libenet.a
   Recast
   Detour
+  Vulkan::Vulkan
 )
 
-# ============================================================
-# Include directories for your own source
-# ============================================================
-target_include_directories(MyEngine PRIVATE
+# Include directories (separate block, includes only)
+target_include_directories(Titanium PRIVATE
+  third_party
   ${CMAKE_SOURCE_DIR}/src
+  ${ENET_INCLUDE_DIRS}
+  ${SDL2_INCLUDE_DIRS}
+)
+target_compile_definitions(Titanium PRIVATE
+    ASSETS_PATH="${CMAKE_SOURCE_DIR}/assets/"
+)
+
+add_custom_command(TARGET Titanium POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/shaders
+    $<TARGET_FILE_DIR:Titanium>/shaders
 )
