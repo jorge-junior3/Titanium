@@ -5,6 +5,7 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 view;
     mat4 proj;
     vec4 camPos;
+    mat4 lightSpaceMatrix;
 } ubo;
 
 layout(location = 0) in vec3 inPosition;
@@ -21,21 +22,20 @@ layout(location = 3) out vec3 camPos;
 layout(location = 4) out vec3 TBN0;
 layout(location = 5) out vec3 TBN1;
 layout(location = 6) out vec3 TBN2;
+layout(location = 7) out vec4 fragPosLightSpace;
 
 void main() {
-    vec4 worldPos = ubo.model * vec4(inPosition, 1.0);
-    gl_Position   = ubo.proj * ubo.view * worldPos;
-    fragPos       = worldPos.xyz;
-    fragNormal    = mat3(transpose(inverse(ubo.model))) * inNormal;
-    fragUV        = inUV;
-    camPos        = ubo.camPos.xyz;
+    vec4 worldPos     = ubo.model * vec4(inPosition, 1.0);
+    gl_Position       = ubo.proj * ubo.view * worldPos;
+    fragPos           = worldPos.xyz;
+    fragNormal        = mat3(transpose(inverse(ubo.model))) * inNormal;
+    fragUV            = inUV;
+    camPos            = ubo.camPos.xyz;
+    fragPosLightSpace = ubo.lightSpaceMatrix * worldPos;
 
     vec3 T = normalize(mat3(ubo.model) * inTangent);
     vec3 B = normalize(mat3(ubo.model) * inBitangent);
     vec3 N = normalize(mat3(ubo.model) * inNormal);
-
-    // output TBN as 3 separate vec3s — mat3 takes 3 location slots
-    // MoltenVK is strict about this, implicit mat3 out will break
     TBN0 = T;
     TBN1 = B;
     TBN2 = N;

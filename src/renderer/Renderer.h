@@ -12,7 +12,8 @@ struct UniformBufferObject {
     glm::mat4 model;
     glm::mat4 view;
     glm::mat4 proj;
-    glm::vec4 camPos;  // ← add this, vec4 for alignment
+    glm::vec4 camPos;
+    glm::mat4 lightSpaceMatrix;
 };
 
 
@@ -60,14 +61,7 @@ private:
     VkFence     m_inFlight       = VK_NULL_HANDLE;
 
     // Shadow mapping
-    VkImage       m_shadowMap       = VK_NULL_HANDLE;
-    VkDeviceMemory m_shadowMapMemory = VK_NULL_HANDLE;
-    VkImageView   m_shadowMapView   = VK_NULL_HANDLE;
-    VkSampler     m_shadowSampler   = VK_NULL_HANDLE;
-    VkRenderPass  m_shadowRenderPass = VK_NULL_HANDLE;
-    VkPipeline    m_shadowPipeline   = VK_NULL_HANDLE;
-    VkPipelineLayout m_shadowPipelineLayout = VK_NULL_HANDLE;
-    VkFramebuffer m_shadowFramebuffer = VK_NULL_HANDLE;
+    
 
     uint32_t    m_graphicsFamily = 0;
     SDL_Window* m_window         = nullptr;
@@ -141,4 +135,50 @@ private:
     void createImageAndView(const std::string& path, bool srgb,
                             VkImage& image, VkDeviceMemory& memory, VkImageView& view);
     void createPBRSampler();
+    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
+    VkImage        m_shadowImage           = VK_NULL_HANDLE;
+    VkDeviceMemory m_shadowMemory          = VK_NULL_HANDLE;
+    VkImageView    m_shadowImageView       = VK_NULL_HANDLE;
+    VkSampler      m_shadowSampler         = VK_NULL_HANDLE;
+    VkRenderPass   m_shadowRenderPass      = VK_NULL_HANDLE;
+    VkFramebuffer  m_shadowFramebuffer     = VK_NULL_HANDLE;
+    VkPipeline     m_shadowPipeline        = VK_NULL_HANDLE;
+    VkPipelineLayout m_shadowPipelineLayout = VK_NULL_HANDLE;
+    VkBuffer       m_shadowUniformBuffer   = VK_NULL_HANDLE;
+    VkDeviceMemory m_shadowUniformMemory   = VK_NULL_HANDLE;
+    void*          m_shadowUniformMapped   = nullptr;
+
+    struct ShadowUBO {
+        glm::mat4 lightSpaceMatrix;
+    };
+
+    VkDescriptorSetLayout m_shadowDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool      m_shadowDescriptorPool      = VK_NULL_HANDLE;
+    VkDescriptorSet       m_shadowDescriptorSet       = VK_NULL_HANDLE;
+
+    void createShadowResources();
+    void createShadowRenderPass();
+    void createShadowFramebuffer();
+    void createShadowPipeline();
+    void createShadowDescriptors();
+    void drawShadowPass(VkCommandBuffer cmd);
+    glm::mat4 getLightSpaceMatrix();
+
+    // skybox
+    VkImage        m_cubemapImage      = VK_NULL_HANDLE;
+    VkDeviceMemory m_cubemapMemory     = VK_NULL_HANDLE;
+    VkImageView    m_cubemapImageView  = VK_NULL_HANDLE;
+    VkSampler      m_cubemapSampler    = VK_NULL_HANDLE;
+
+    VkDescriptorSetLayout m_skyboxDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool      m_skyboxDescriptorPool      = VK_NULL_HANDLE;
+    VkDescriptorSet       m_skyboxDescriptorSet       = VK_NULL_HANDLE;
+
+    VkPipeline       m_skyboxPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout m_skyboxPipelineLayout = VK_NULL_HANDLE;
+
+    void createCubemap();
+    void createSkyboxPipeline();
+    void createSkyboxDescriptors();
+    void drawSkybox(VkCommandBuffer cmd);
 };

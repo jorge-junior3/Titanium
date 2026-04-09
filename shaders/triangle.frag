@@ -4,6 +4,7 @@ layout(binding = 1) uniform sampler2D albedoMap;
 layout(binding = 2) uniform sampler2D normalMap;
 layout(binding = 3) uniform sampler2D roughnessMap;
 layout(binding = 4) uniform sampler2D metallicMap;
+layout(binding = 5) uniform sampler2DShadow shadowMap;
 
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNormal;
@@ -12,6 +13,7 @@ layout(location = 3) in vec3 camPos;
 layout(location = 4) in vec3 TBN0;
 layout(location = 5) in vec3 TBN1;
 layout(location = 6) in vec3 TBN2;
+layout(location = 7) in vec4 fragPosLightSpace;
 
 layout(location = 0) out vec4 outColor;
 
@@ -47,23 +49,47 @@ vec3 F_SchlickRoughness(float cosTheta, vec3 F0, float roughness) {
               * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// fake hemisphere environment — sky above, ground below
-// samples a gradient based on direction, simulates an outdoor HDR sky
 vec3 sampleFakeEnv(vec3 dir, float roughness) {
-    // sky gradient: zenith is deep blue, horizon is warm white
     vec3 skyZenith  = vec3(0.1, 0.3, 0.8);
     vec3 skyHorizon = vec3(0.8, 0.85, 1.0);
-    vec3 ground     = vec3(0.08, 0.06, 0.05); // dark warm ground
-
-    float upness = dir.y; // -1 = straight down, 1 = straight up
-
-    vec3 sky = mix(skyHorizon, skyZenith, max(upness, 0.0));
-    vec3 env = mix(ground, sky, smoothstep(-0.1, 0.1, upness));
-
-    // roughness blurs the reflection — rough surfaces see more of the
-    // average sky color, smooth surfaces see the sharper gradient
-    vec3 avgSky = mix(skyHorizon, skyZenith, 0.3);
+    vec3 ground     = vec3(0.08, 0.06, 0.05);
+    float upness    = dir.y;
+    vec3 sky        = mix(skyHorizon, skyZenith, max(upness, 0.0));
+    vec3 env        = mix(ground, sky, smoothstep(-0.1, 0.1, upness));
+    vec3 avgSky     = mix(skyHorizon, skyZenith, 0.3);
     return mix(env, avgSky, roughness * roughness);
+}
+
+// PCF shadow sampling — samples a 3x3 kernel around the shadow coord
+// to produce soft shadow edges instead of hard aliased ones
+float shadowPCF(vec4 fragPosLS, float NdotL) {
+    // perspective divide — brings coords into [-1, 1]
+    vec3 proj = fragPosLS.xyz / fragPosLS.w;
+
+    // remap XY from [-1,1] to [0,1] for texture lookup
+    vec2 shadowUV = proj.xy * 0.5 + 0.5;
+
+    // fragment is outside the shadow map — no shadow
+    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 ||
+        shadowUV.y < 0.0 || shadowUV.y > 1.0 ||
+        proj.z > 1.0)
+        return 1.0;
+
+    // bias prevents shadow acne — steeper angles need more bias
+    float bias    = max(0.005 * (1.0 - NdotL), 0.001);
+    float depth   = proj.z - bias;
+
+    // 3x3 PCF kernel — average 9 shadow samples
+    float shadow     = 0.0;
+    vec2  texelSize  = vec2(1.0 / 2048.0); // match shadow map resolution
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            vec3 sampleCoord = vec3(shadowUV + vec2(x, y) * texelSize, depth);
+            shadow += texture(shadowMap, sampleCoord);
+        }
+    }
+    shadow /= 9.0;
+    return shadow;
 }
 
 void main() {
@@ -80,55 +106,43 @@ void main() {
 
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
-    // --- direct light ---
-    vec3 lightPos   = vec3(4.0, 6.0, 4.0);
-    vec3 lightColor = vec3(300.0, 280.0, 260.0); // physically scaled
-
-    vec3  L         = normalize(lightPos - fragPos);
-    vec3  H         = normalize(V + L);
-    float dist      = length(lightPos - fragPos);
-    float atten     = 1.0 / (dist * dist);
-    vec3  radiance  = lightColor * atten;
+    // direct light
+    vec3  lightPos  = vec3(4.0, 6.0, 4.0);
+    vec3  lightColor = vec3(300.0, 280.0, 260.0);
+    vec3  L          = normalize(lightPos - fragPos);
+    vec3  H          = normalize(V + L);
+    float dist       = length(lightPos - fragPos);
+    float atten      = 1.0 / (dist * dist);
+    vec3  radiance   = lightColor * atten;
 
     float NDF = D_GGX(N, H, roughness);
     float G   = G_Smith(N, V, L, roughness);
     vec3  F   = F_Schlick(max(dot(H, V), 0.0), F0);
 
-    vec3  num   = NDF * G * F;
-    float denom = 4.0 * max(dot(N, V), 0.0)
-                      * max(dot(N, L), 0.0) + 0.0001;
+    vec3  num     = NDF * G * F;
+    float denom   = 4.0 * max(dot(N, V), 0.0)
+                        * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular = num / denom;
 
     vec3  kD    = (vec3(1.0) - F) * (1.0 - metallic);
     float NdotL = max(dot(N, L), 0.0);
-    vec3  Lo    = (kD * albedo / PI + specular) * radiance * NdotL;
 
-    // --- fake IBL ---
-    // diffuse irradiance — sample env from normal direction
-    vec3 irradiance = sampleFakeEnv(N, 1.0);
-    vec3 diffuseIBL = irradiance * albedo;
+    // shadow — modulates direct light only, not ambient
+    float shadow = shadowPCF(fragPosLightSpace, NdotL);
+    vec3  Lo     = (kD * albedo / PI + specular) * radiance * NdotL * shadow;
 
-    // specular IBL — sample env from reflection direction
+    // fake IBL
+    vec3 irradiance  = sampleFakeEnv(N, 1.0);
+    vec3 diffuseIBL  = irradiance * albedo;
     vec3 envSpecular = sampleFakeEnv(R, roughness);
+    vec3 F_ibl       = F_SchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    vec3 kD_ibl      = (vec3(1.0) - F_ibl) * (1.0 - metallic);
+    float NdotV      = max(dot(N, V), 0.0);
+    vec2  brdfApprox = vec2(1.0 - roughness, roughness);
+    vec3  specIBL    = envSpecular * (F_ibl * brdfApprox.x + brdfApprox.y * 0.1);
+    vec3  ambient    = (kD_ibl * diffuseIBL + specIBL) * 0.8;
 
-    // fresnel at grazing angle for IBL
-    vec3 F_ibl = F_SchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-
-    // energy conservation — metals have no diffuse IBL
-    vec3 kD_ibl = (vec3(1.0) - F_ibl) * (1.0 - metallic);
-
-    // approximate specular BRDF — real IBL uses a LUT here,
-    // this is a cheap fit that looks good enough for now
-    float NdotV       = max(dot(N, V), 0.0);
-    vec2  brdfApprox  = vec2(1.0 - roughness, roughness); // simplified
-    vec3  specularIBL = envSpecular * (F_ibl * brdfApprox.x + brdfApprox.y * 0.1);
-
-    vec3 ambient = (kD_ibl * diffuseIBL + specularIBL) * 0.8;
-
-    // combine direct + IBL
     vec3 color = ambient + Lo;
-
-    // Reinhard tonemapping + gamma
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0 / 2.2));
 

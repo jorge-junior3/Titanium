@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include "MeshLoader.h"
+#include <glm/gtc/matrix_transform.hpp>
 
 #ifndef ASSETS_PATH
 #define ASSETS_PATH "assets/"
@@ -91,34 +92,45 @@ Renderer::Renderer(SDL_Window* window) : m_window(window) {
     createSurface();
     std::cout << "5 createSwapchain" << std::endl;
     createSwapchain();
+    std::cout << "6 createDepthResources" << std::endl;
     createDepthResources();
-    std::cout << "6 createRenderPass" << std::endl;
+    std::cout << "7 createRenderPass" << std::endl;
     createRenderPass();
-    std::cout << "7 createFramebuffers" << std::endl;
+    std::cout << "8 createFramebuffers" << std::endl;
     createFramebuffers();
-    std::cout << "8 createCommandPool" << std::endl;
+    std::cout << "9 createCommandPool" << std::endl;
     createCommandPool();
-    std::cout << "9 createCommandBuffers" << std::endl;
+    std::cout << "10 createCommandBuffers" << std::endl;
     createCommandBuffers();
-    std::cout << "10 createSyncObjects" << std::endl;
+    std::cout << "11 createSyncObjects" << std::endl;
     createSyncObjects();
-    std::cout << "11 createTextureImage" << std::endl;
-    loadPBRTextures();       
+    std::cout << "12 createShadowResources" << std::endl;
+    createShadowResources();
+    std::cout << "13 createCubemap" << std::endl;
+    createCubemap();
+    std::cout << "14 loadPBRTextures" << std::endl;
+    loadPBRTextures();
+    std::cout << "15 createPBRSampler" << std::endl;
     createPBRSampler();
+    std::cout << "16 createDescriptorSetLayout" << std::endl;
     createDescriptorSetLayout();
-    std::cout << "15 createUniformBuffer" << std::endl;
+    std::cout << "17 createUniformBuffer" << std::endl;
     createUniformBuffer();
-    std::cout << "16 createDescriptorPool" << std::endl;
+    std::cout << "18 createDescriptorPool" << std::endl;
     createDescriptorPool();
-    std::cout << "17 createDescriptorSet" << std::endl;
+    std::cout << "19 createDescriptorSet" << std::endl;
     createDescriptorSet();
-    std::cout << "18 createGraphicsPipeline" << std::endl;
+    std::cout << "20 createSkyboxDescriptors" << std::endl;
+    createSkyboxDescriptors();
+    std::cout << "21 createGraphicsPipeline" << std::endl;
     createGraphicsPipeline();
-    std::cout << "19 loading mesh" << std::endl;
+    std::cout << "22 createSkyboxPipeline" << std::endl;
+    createSkyboxPipeline();
+    std::cout << "23 loading mesh" << std::endl;
     Mesh mesh = MeshLoader::load(std::string(ASSETS_PATH) + "cube.obj");
-    std::cout << "20 createVertexBuffer" << std::endl;
+    std::cout << "24 createVertexBuffer" << std::endl;
     createVertexBuffer(mesh.vertices);
-    std::cout << "21 createIndexBuffer" << std::endl;
+    std::cout << "25 createIndexBuffer" << std::endl;
     createIndexBuffer(mesh.indices);
     std::cout << "Renderer ready!" << std::endl;
 }
@@ -144,6 +156,30 @@ Renderer::~Renderer() {
     vkDestroyImage(m_device, m_depthImage, nullptr);
     vkFreeMemory(m_device, m_depthImageMemory, nullptr);
     vkDestroySampler(m_device, m_pbrSampler, nullptr);
+
+    vkDestroyPipeline(m_device, m_shadowPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_shadowPipelineLayout, nullptr);
+    vkDestroyRenderPass(m_device, m_shadowRenderPass, nullptr);
+    vkDestroyFramebuffer(m_device, m_shadowFramebuffer, nullptr);
+    vkDestroyImageView(m_device, m_shadowImageView, nullptr);
+    vkDestroyImage(m_device, m_shadowImage, nullptr);
+    vkFreeMemory(m_device, m_shadowMemory, nullptr);
+    vkDestroySampler(m_device, m_shadowSampler, nullptr);
+    vkDestroyBuffer(m_device, m_shadowUniformBuffer, nullptr);
+    vkFreeMemory(m_device, m_shadowUniformMemory, nullptr);
+    vkDestroyDescriptorPool(m_device, m_shadowDescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(m_device, m_shadowDescriptorSetLayout, nullptr);
+
+    vkDestroyPipeline(m_device, m_skyboxPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_skyboxPipelineLayout, nullptr);
+    vkDestroyDescriptorPool(m_device, m_skyboxDescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(m_device, m_skyboxDescriptorSetLayout, nullptr);
+    vkDestroySampler(m_device, m_cubemapSampler, nullptr);
+    vkDestroyImageView(m_device, m_cubemapImageView, nullptr);
+    vkDestroyImage(m_device, m_cubemapImage, nullptr);
+    vkFreeMemory(m_device, m_cubemapMemory, nullptr);   
+
+
 
     auto destroyTex = [&](VkImage img, VkDeviceMemory mem, VkImageView view) {
         vkDestroyImageView(m_device, view, nullptr);
@@ -466,16 +502,13 @@ void Renderer::createSyncObjects() {
     std::cout << "Sync objects created!" << std::endl;
 }
 void Renderer::drawFrame() {
-    // wait for previous frame to finish
     vkWaitForFences(m_device, 1, &m_inFlight, VK_TRUE, UINT64_MAX);
     vkResetFences(m_device, 1, &m_inFlight);
 
-    // get next swapchain image
     uint32_t imageIndex;
     vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
                           m_imageAvailable, VK_NULL_HANDLE, &imageIndex);
 
-    // record command buffer
     VkCommandBuffer cmd = m_commandBuffers[imageIndex];
     vkResetCommandBuffer(cmd, 0);
 
@@ -483,8 +516,13 @@ void Renderer::drawFrame() {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    // begin render pass — this is where you set the clear color
-    VkClearValue clearColor = {{{1.0f, 0.0f, 0.0f, 1.0f}}};  // red
+    // shadow pass first
+    drawShadowPass(cmd);
+
+    // main pass
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color        = VkClearColorValue{{0.01f, 0.01f, 0.01f, 1.0f}};
+    clearValues[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rpInfo{};
     rpInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -492,12 +530,8 @@ void Renderer::drawFrame() {
     rpInfo.framebuffer       = m_framebuffers[imageIndex];
     rpInfo.renderArea.offset = {0, 0};
     rpInfo.renderArea.extent = m_swapchainExtent;
-    std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color = VkClearColorValue{{0.53f, 0.81f, 0.92f, 1.0f}};  // sky blue
-    clearValues[1].depthStencil = {1.0f, 0};                         // far = 1.0
-
-    rpInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-    rpInfo.pClearValues    = clearValues.data();
+    rpInfo.clearValueCount   = static_cast<uint32_t>(clearValues.size());
+    rpInfo.pClearValues      = clearValues.data();
 
     vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
@@ -508,10 +542,11 @@ void Renderer::drawFrame() {
         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+        drawSkybox(cmd);
     vkCmdEndRenderPass(cmd);
+
     vkEndCommandBuffer(cmd);
 
-    // submit to GPU
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
     VkSubmitInfo submitInfo{};
@@ -526,7 +561,6 @@ void Renderer::drawFrame() {
 
     vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_inFlight);
 
-    // present to screen
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.waitSemaphoreCount = 1;
@@ -765,41 +799,6 @@ void Renderer::createIndexBuffer(const std::vector<uint32_t>& indices) {
     std::cout << "Index buffer created!" << std::endl;
 }
 
-void Renderer::createDescriptorSetLayout() {
-    // binding 0 — UBO (vertex shader)
-    VkDescriptorSetLayoutBinding uboBinding{};
-    uboBinding.binding         = 0;
-    uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboBinding.descriptorCount = 1;
-    uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    // bindings 1-4 — PBR textures (fragment shader)
-    auto makeSamplerBinding = [](uint32_t binding) {
-        VkDescriptorSetLayoutBinding b{};
-        b.binding         = binding;
-        b.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        b.descriptorCount = 1;
-        b.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-        return b;
-    };
-
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings = {
-        uboBinding,
-        makeSamplerBinding(1), // albedo
-        makeSamplerBinding(2), // normal
-        makeSamplerBinding(3), // roughness
-        makeSamplerBinding(4), // metallic
-    };
-
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings    = bindings.data();
-
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS)
-        throw std::runtime_error("Failed to create descriptor set layout");
-}
-
 void Renderer::createUniformBuffer() {
     VkDeviceSize size = sizeof(UniformBufferObject);
 
@@ -833,8 +832,7 @@ void Renderer::createDescriptorPool() {
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = 4;  // ← 4 PBR maps
-
+    poolSizes[1].descriptorCount = 5;  // was 4, now 4 PBR + 1 shadow
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
@@ -851,6 +849,7 @@ void Renderer::createDescriptorSet() {
     allocInfo.descriptorPool     = m_descriptorPool;
     allocInfo.descriptorSetCount = 1;
     allocInfo.pSetLayouts        = &m_descriptorSetLayout;
+    
 
     if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate descriptor set");
@@ -872,8 +871,12 @@ void Renderer::createDescriptorSet() {
     VkDescriptorImageInfo normalInfo    = makeImageInfo(m_normalImageView);
     VkDescriptorImageInfo roughInfo     = makeImageInfo(m_roughnessImageView);
     VkDescriptorImageInfo metallicInfo  = makeImageInfo(m_metallicImageView);
+    VkDescriptorImageInfo shadowInfo{};
+    shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    shadowInfo.imageView   = m_shadowImageView;
+    shadowInfo.sampler     = m_shadowSampler;
 
-    std::array<VkWriteDescriptorSet, 5> writes{};
+    std::array<VkWriteDescriptorSet, 6> writes{};
 
     writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet          = m_descriptorSet;
@@ -897,8 +900,10 @@ void Renderer::createDescriptorSet() {
     writes[2] = makeSamplerWrite(2, normalInfo);
     writes[3] = makeSamplerWrite(3, roughInfo);
     writes[4] = makeSamplerWrite(4, metallicInfo);
+    writes[5] = makeSamplerWrite(5, shadowInfo);
 
     vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    
 }
 
 void Renderer::updateUniformBuffer(const UniformBufferObject& ubo) {
@@ -1246,4 +1251,780 @@ void Renderer::createPBRSampler() {
 
     if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_pbrSampler) != VK_SUCCESS)
         throw std::runtime_error("Failed to create PBR sampler");
+}
+
+void Renderer::createShadowResources() {
+    createShadowRenderPass();
+
+    // create depth image for shadow map
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+    imageInfo.extent        = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1};
+    imageInfo.mipLevels     = 1;
+    imageInfo.arrayLayers   = 1;
+    imageInfo.format        = VK_FORMAT_D32_SFLOAT;
+    imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                            | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_shadowImage) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow image");
+
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(m_device, m_shadowImage, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize  = memReqs.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_shadowMemory) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate shadow memory");
+
+    vkBindImageMemory(m_device, m_shadowImage, m_shadowMemory, 0);
+
+    // image view
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image                           = m_shadowImage;
+    viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format                          = VK_FORMAT_D32_SFLOAT;
+    viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT;
+    viewInfo.subresourceRange.baseMipLevel   = 0;
+    viewInfo.subresourceRange.levelCount     = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount     = 1;
+
+    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_shadowImageView) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow image view");
+
+    // sampler — compare mode for sampler2DShadow in the shader
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter               = VK_FILTER_LINEAR;
+    samplerInfo.minFilter               = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeV            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeW            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    samplerInfo.compareEnable           = VK_TRUE;  // ← enables sampler2DShadow
+    samplerInfo.compareOp               = VK_COMPARE_OP_LESS;
+    samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_shadowSampler) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow sampler");
+
+    createShadowFramebuffer();
+    createShadowDescriptors();
+    createShadowPipeline();
+
+    std::cout << "Shadow resources created!" << std::endl;
+}
+
+void Renderer::createShadowRenderPass() {
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format         = VK_FORMAT_D32_SFLOAT;
+    depthAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE; // keep depth for sampling
+    depthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference depthRef{};
+    depthRef.attachment = 0;
+    depthRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 0; // depth only — no color output
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    // two dependencies — transition in and out of shader read
+    std::array<VkSubpassDependency, 2> deps{};
+
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    deps[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    VkRenderPassCreateInfo rpInfo{};
+    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = 1;
+    rpInfo.pAttachments    = &depthAttachment;
+    rpInfo.subpassCount    = 1;
+    rpInfo.pSubpasses      = &subpass;
+    rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+    rpInfo.pDependencies   = deps.data();
+
+    if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_shadowRenderPass) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow render pass");
+}
+
+void Renderer::createShadowFramebuffer() {
+    VkFramebufferCreateInfo fbInfo{};
+    fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbInfo.renderPass      = m_shadowRenderPass;
+    fbInfo.attachmentCount = 1;
+    fbInfo.pAttachments    = &m_shadowImageView;
+    fbInfo.width           = SHADOW_MAP_SIZE;
+    fbInfo.height          = SHADOW_MAP_SIZE;
+    fbInfo.layers          = 1;
+
+    if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_shadowFramebuffer) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow framebuffer");
+}
+
+void Renderer::createShadowDescriptors() {
+    // descriptor set layout — just one UBO for the light space matrix
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding        = 0;
+    uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags     = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings    = &uboBinding;
+
+    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr,
+            &m_shadowDescriptorSetLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow descriptor set layout");
+
+    // pool
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes    = &poolSize;
+    poolInfo.maxSets       = 1;
+
+    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_shadowDescriptorPool) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow descriptor pool");
+
+    // uniform buffer for light space matrix
+    VkDeviceSize bufSize = sizeof(ShadowUBO);
+
+    VkBufferCreateInfo bufInfo{};
+    bufInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufInfo.size        = bufSize;
+    bufInfo.usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(m_device, &bufInfo, nullptr, &m_shadowUniformBuffer) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow uniform buffer");
+
+    VkMemoryRequirements memReqs;
+    vkGetBufferMemoryRequirements(m_device, m_shadowUniformBuffer, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize  = memReqs.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_shadowUniformMemory) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate shadow uniform memory");
+
+    vkBindBufferMemory(m_device, m_shadowUniformBuffer, m_shadowUniformMemory, 0);
+    vkMapMemory(m_device, m_shadowUniformMemory, 0, bufSize, 0, &m_shadowUniformMapped);
+
+    // allocate descriptor set
+    VkDescriptorSetAllocateInfo dsAllocInfo{};
+    dsAllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    dsAllocInfo.descriptorPool     = m_shadowDescriptorPool;
+    dsAllocInfo.descriptorSetCount = 1;
+    dsAllocInfo.pSetLayouts        = &m_shadowDescriptorSetLayout;
+
+    if (vkAllocateDescriptorSets(m_device, &dsAllocInfo, &m_shadowDescriptorSet) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate shadow descriptor set");
+
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = m_shadowUniformBuffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range  = sizeof(ShadowUBO);
+
+    VkWriteDescriptorSet write{};
+    write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet          = m_shadowDescriptorSet;
+    write.dstBinding      = 0;
+    write.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write.descriptorCount = 1;
+    write.pBufferInfo     = &bufferInfo;
+
+    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+}
+
+void Renderer::createShadowPipeline() {
+    auto vertCode   = readFile("shaders/shadow.vert.spv");
+    auto vertModule = createShaderModule(m_device, vertCode);
+
+    VkPipelineShaderStageCreateInfo vertStage{};
+    vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertStage.stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    vertStage.module = vertModule;
+    vertStage.pName  = "main";
+
+    auto binding    = Vertex::getBindingDescription();
+    auto attributes = Vertex::getAttributeDescriptions();
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 1;
+    vertexInput.pVertexBindingDescriptions      = &binding;
+    vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
+    vertexInput.pVertexAttributeDescriptions    = attributes.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkViewport viewport{};
+    viewport.x        = 0.0f;
+    viewport.y        = 0.0f;
+    viewport.width    = static_cast<float>(SHADOW_MAP_SIZE);
+    viewport.height   = static_cast<float>(SHADOW_MAP_SIZE);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports    = &viewport;
+    viewportState.scissorCount  = 1;
+    viewportState.pScissors     = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode                = VK_CULL_MODE_FRONT_BIT; // cull front faces for shadow
+    rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable         = VK_TRUE;   // reduce shadow acne
+    rasterizer.depthBiasConstantFactor = 1.25f;
+    rasterizer.depthBiasSlopeFactor    = 1.75f;
+    rasterizer.lineWidth               = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType             = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable   = VK_TRUE;
+    depthStencil.depthWriteEnable  = VK_TRUE;
+    depthStencil.depthCompareOp    = VK_COMPARE_OP_LESS;
+
+    // no color attachments in shadow pass
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 0;
+
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts    = &m_shadowDescriptorSetLayout;
+
+    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_shadowPipelineLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 1; // vertex only
+    pipelineInfo.pStages             = &vertStage;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.layout              = m_shadowPipelineLayout;
+    pipelineInfo.renderPass          = m_shadowRenderPass;
+    pipelineInfo.subpass             = 0;
+
+    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+            &pipelineInfo, nullptr, &m_shadowPipeline) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow pipeline");
+
+    vkDestroyShaderModule(m_device, vertModule, nullptr);
+
+    std::cout << "Shadow pipeline created!" << std::endl;
+}
+
+glm::mat4 Renderer::getLightSpaceMatrix() {
+    glm::vec3 lightPos = glm::vec3(4.0f, 6.0f, 4.0f);
+    glm::vec3 lightTarget = glm::vec3(0.0f);
+
+    // orthographic projection covers the scene — tune these to your world size
+    glm::mat4 lightProj = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 50.0f);
+    glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0.0f, 1.0f, 0.0f));
+
+    // flip Y — Vulkan NDC has Y pointing down, GLM was designed for OpenGL
+    lightProj[1][1] *= -1;
+
+    return lightProj * lightView;
+}
+
+void Renderer::drawShadowPass(VkCommandBuffer cmd) {
+    // update shadow UBO
+    ShadowUBO shadowUBO{};
+    shadowUBO.lightSpaceMatrix = getLightSpaceMatrix();
+    memcpy(m_shadowUniformMapped, &shadowUBO, sizeof(shadowUBO));
+
+    VkClearValue clearDepth{};
+    clearDepth.depthStencil = {1.0f, 0};
+
+    VkRenderPassBeginInfo rpInfo{};
+    rpInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpInfo.renderPass        = m_shadowRenderPass;
+    rpInfo.framebuffer       = m_shadowFramebuffer;
+    rpInfo.renderArea.offset = {0, 0};
+    rpInfo.renderArea.extent = {SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+    rpInfo.clearValueCount   = 1;
+    rpInfo.pClearValues      = &clearDepth;
+
+    vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_shadowPipelineLayout, 0, 1, &m_shadowDescriptorSet, 0, nullptr);
+        VkBuffer     vertexBuffers[] = {m_vertexBuffer};
+        VkDeviceSize offsets[]       = {0};
+        vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+    vkCmdEndRenderPass(cmd);
+}
+void Renderer::createDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding         = 0;
+    uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    auto makeSamplerBinding = [](uint32_t binding) {
+        VkDescriptorSetLayoutBinding b{};
+        b.binding         = binding;
+        b.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        b.descriptorCount = 1;
+        b.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        return b;
+    };
+
+    std::array<VkDescriptorSetLayoutBinding, 6> bindings = {
+        uboBinding,
+        makeSamplerBinding(1), // albedo
+        makeSamplerBinding(2), // normal
+        makeSamplerBinding(3), // roughness
+        makeSamplerBinding(4), // metallic
+        makeSamplerBinding(5), // shadow map ← new
+    };
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings    = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create descriptor set layout");
+}
+
+void Renderer::createCubemap() {
+    // face order: right, left, top, bottom, front, back
+    std::array<std::string, 6> facePaths = {
+        std::string(ASSETS_PATH) + "skybox_right.png",
+        std::string(ASSETS_PATH) + "skybox_left.png",
+        std::string(ASSETS_PATH) + "skybox_top.png",
+        std::string(ASSETS_PATH) + "skybox_bottom.png",
+        std::string(ASSETS_PATH) + "skybox_front.png",
+        std::string(ASSETS_PATH) + "skybox_back.png",
+    };
+
+    int width, height, channels;
+    // load first face to get dimensions
+    stbi_uc* firstPixels = stbi_load(facePaths[0].c_str(), &width, &height, &channels, STBI_rgb_alpha);
+    if (!firstPixels)
+        throw std::runtime_error("Failed to load cubemap face: " + facePaths[0]);
+    stbi_image_free(firstPixels);
+
+    VkDeviceSize faceSize  = width * height * 4;
+    VkDeviceSize totalSize = faceSize * 6;
+
+    // staging buffer for all 6 faces
+    VkBuffer       stagingBuffer;
+    VkDeviceMemory stagingMemory;
+
+    VkBufferCreateInfo bufInfo{};
+    bufInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufInfo.size        = totalSize;
+    bufInfo.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer);
+
+    VkMemoryRequirements memReqs;
+    vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize  = memReqs.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory);
+    vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
+
+    // load each face into the staging buffer at the correct offset
+    void* data;
+    vkMapMemory(m_device, stagingMemory, 0, totalSize, 0, &data);
+    for (int i = 0; i < 6; i++) {
+        int w, h, c;
+        stbi_uc* pixels = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
+        if (!pixels)
+            throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
+        memcpy((char*)data + faceSize * i, pixels, faceSize);
+        stbi_image_free(pixels);
+        std::cout << "Loaded cubemap face: " << facePaths[i] << std::endl;
+    }
+    vkUnmapMemory(m_device, stagingMemory);
+
+    // create cubemap image — arrayLayers=6 + CUBE_COMPATIBLE flag
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+    imageInfo.extent        = {(uint32_t)width, (uint32_t)height, 1};
+    imageInfo.mipLevels     = 1;
+    imageInfo.arrayLayers   = 6;  // one per face
+    imageInfo.format        = VK_FORMAT_R8G8B8A8_SRGB;
+    imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT; // ← required for cubemap
+
+    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_cubemapImage) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create cubemap image");
+
+    vkGetImageMemoryRequirements(m_device, m_cubemapImage, &memReqs);
+    allocInfo.allocationSize  = memReqs.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    vkAllocateMemory(m_device, &allocInfo, nullptr, &m_cubemapMemory);
+    vkBindImageMemory(m_device, m_cubemapImage, m_cubemapMemory, 0);
+
+    // transition all 6 layers to transfer dst
+    {
+        VkCommandBuffer cmd = beginSingleTimeCommands();
+        VkImageMemoryBarrier barrier{};
+        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image               = m_cubemapImage;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel   = 0;
+        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 6; // all faces
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        endSingleTimeCommands(cmd);
+    }
+
+    // copy each face from staging buffer to its array layer
+    {
+        VkCommandBuffer cmd = beginSingleTimeCommands();
+        for (uint32_t i = 0; i < 6; i++) {
+            VkBufferImageCopy region{};
+            region.bufferOffset      = faceSize * i;
+            region.bufferRowLength   = 0;
+            region.bufferImageHeight = 0;
+            region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel       = 0;
+            region.imageSubresource.baseArrayLayer = i; // ← each face goes to its layer
+            region.imageSubresource.layerCount     = 1;
+            region.imageOffset = {0, 0, 0};
+            region.imageExtent = {(uint32_t)width, (uint32_t)height, 1};
+            vkCmdCopyBufferToImage(cmd, stagingBuffer, m_cubemapImage,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        }
+        endSingleTimeCommands(cmd);
+    }
+
+    // transition to shader read
+    {
+        VkCommandBuffer cmd = beginSingleTimeCommands();
+        VkImageMemoryBarrier barrier{};
+        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image               = m_cubemapImage;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel   = 0;
+        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 6;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        endSingleTimeCommands(cmd);
+    }
+
+    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+    vkFreeMemory(m_device, stagingMemory, nullptr);
+
+    // cubemap image view — viewType must be CUBE
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image                           = m_cubemapImage;
+    viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_CUBE; // ← key
+    viewInfo.format                          = VK_FORMAT_R8G8B8A8_SRGB;
+    viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel   = 0;
+    viewInfo.subresourceRange.levelCount     = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount     = 6;
+    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_cubemapImageView) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create cubemap image view");
+
+    // sampler
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter    = VK_FILTER_LINEAR;
+    samplerInfo.minFilter    = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.borderColor  = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_cubemapSampler) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create cubemap sampler");
+
+    std::cout << "Cubemap loaded!" << std::endl;
+}
+
+void Renderer::createSkyboxDescriptors() {
+    // layout — binding 0 = UBO, binding 1 = cubemap sampler
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+
+    bindings[0].binding         = 0;
+    bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
+
+    bindings[1].binding         = 1;
+    bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings    = bindings.data();
+    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr,
+            &m_skyboxDescriptorSetLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skybox descriptor set layout");
+
+    // pool
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes    = poolSizes.data();
+    poolInfo.maxSets       = 1;
+    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_skyboxDescriptorPool) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skybox descriptor pool");
+
+    // allocate set
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool     = m_skyboxDescriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts        = &m_skyboxDescriptorSetLayout;
+    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_skyboxDescriptorSet) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate skybox descriptor set");
+
+    // write UBO
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = m_uniformBuffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range  = sizeof(UniformBufferObject);
+
+    // write cubemap
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView   = m_cubemapImageView;
+    imageInfo.sampler     = m_cubemapSampler;
+
+    std::array<VkWriteDescriptorSet, 2> writes{};
+    writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet          = m_skyboxDescriptorSet;
+    writes[0].dstBinding      = 0;
+    writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].descriptorCount = 1;
+    writes[0].pBufferInfo     = &bufferInfo;
+
+    writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet          = m_skyboxDescriptorSet;
+    writes[1].dstBinding      = 1;
+    writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].descriptorCount = 1;
+    writes[1].pImageInfo      = &imageInfo;
+
+    vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    std::cout << "Skybox descriptors created!" << std::endl;
+}
+
+void Renderer::createSkyboxPipeline() {
+    auto vertCode   = readFile("shaders/skybox.vert.spv");
+    auto fragCode   = readFile("shaders/skybox.frag.spv");
+    auto vertModule = createShaderModule(m_device, vertCode);
+    auto fragModule = createShaderModule(m_device, fragCode);
+
+    VkPipelineShaderStageCreateInfo vertStage{};
+    vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertStage.stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    vertStage.module = vertModule;
+    vertStage.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo fragStage{};
+    fragStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragStage.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragStage.module = fragModule;
+    fragStage.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo stages[] = {vertStage, fragStage};
+
+    // no vertex buffer — positions are hardcoded in the shader
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 0;
+    vertexInput.vertexAttributeDescriptionCount = 0;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkViewport viewport{};
+    viewport.x        = 0.0f;
+    viewport.y        = 0.0f;
+    viewport.width    = static_cast<float>(m_swapchainExtent.width);
+    viewport.height   = static_cast<float>(m_swapchainExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = m_swapchainExtent;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports    = &viewport;
+    viewportState.scissorCount  = 1;
+    viewportState.pScissors     = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode    = VK_CULL_MODE_FRONT_BIT; // cull front — we're inside the cube
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // depth test ON but write OFF — skybox reads depth but never writes it
+    // LESS_OR_EQUAL so skybox passes at z=1.0 (set by xyww trick in vert shader)
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable  = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    blendAttachment.blendEnable    = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttachment;
+
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts    = &m_skyboxDescriptorSetLayout;
+    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_skyboxPipelineLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skybox pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.layout              = m_skyboxPipelineLayout;
+    pipelineInfo.renderPass          = m_renderPass;
+    pipelineInfo.subpass             = 0;
+
+    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+            &pipelineInfo, nullptr, &m_skyboxPipeline) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skybox pipeline");
+
+    vkDestroyShaderModule(m_device, vertModule, nullptr);
+    vkDestroyShaderModule(m_device, fragModule, nullptr);
+
+    std::cout << "Skybox pipeline created!" << std::endl;
+}
+
+void Renderer::drawSkybox(VkCommandBuffer cmd) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyboxPipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_skyboxPipelineLayout, 0, 1, &m_skyboxDescriptorSet, 0, nullptr);
+    // 36 vertices hardcoded in shader — no vertex buffer bind needed
+    vkCmdDraw(cmd, 36, 1, 0, 0);
 }
