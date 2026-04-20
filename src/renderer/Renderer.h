@@ -181,4 +181,29 @@ private:
     void createSkyboxPipeline();
     void createSkyboxDescriptors();
     void drawSkybox(VkCommandBuffer cmd);
+
+    // HDR offscreen rendering
+    VkImage        m_hdrImage       = VK_NULL_HANDLE;
+    VkDeviceMemory m_hdrMemory      = VK_NULL_HANDLE;
+    VkImageView    m_hdrImageView   = VK_NULL_HANDLE;
+    VkSampler      m_hdrSampler     = VK_NULL_HANDLE;
+    VkRenderPass   m_hdrRenderPass  = VK_NULL_HANDLE;
+    VkFramebuffer  m_hdrFramebuffer = VK_NULL_HANDLE;
+
+    // tonemapping pass
+    VkRenderPass     m_tonemapRenderPass  = VK_NULL_HANDLE;
+    VkPipeline       m_tonemapPipeline    = VK_NULL_HANDLE;
+    VkPipelineLayout m_tonemapPipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_tonemapDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool      m_tonemapDescriptorPool      = VK_NULL_HANDLE;
+    VkDescriptorSet       m_tonemapDescriptorSet       = VK_NULL_HANDLE;
+
+    float m_exposure = 1.0f; // tweak this to control brightness
+
+    void createHDRResources();
+    void createHDRRenderPass();
+    void createTonemapPass();
+    void createTonemapPipeline();
+    void createTonemapDescriptors();
+    void drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex);
 };

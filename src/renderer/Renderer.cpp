@@ -106,31 +106,37 @@ Renderer::Renderer(SDL_Window* window) : m_window(window) {
     createSyncObjects();
     std::cout << "12 createShadowResources" << std::endl;
     createShadowResources();
-    std::cout << "13 createCubemap" << std::endl;
+    std::cout << "13 createHDRResources" << std::endl;
+    createHDRResources();          // ← must come before createTonemapDescriptors
+    std::cout << "14 createCubemap" << std::endl;
     createCubemap();
-    std::cout << "14 loadPBRTextures" << std::endl;
+    std::cout << "15 loadPBRTextures" << std::endl;
     loadPBRTextures();
-    std::cout << "15 createPBRSampler" << std::endl;
+    std::cout << "16 createPBRSampler" << std::endl;
     createPBRSampler();
-    std::cout << "16 createDescriptorSetLayout" << std::endl;
+    std::cout << "17 createDescriptorSetLayout" << std::endl;
     createDescriptorSetLayout();
-    std::cout << "17 createUniformBuffer" << std::endl;
+    std::cout << "18 createUniformBuffer" << std::endl;
     createUniformBuffer();
-    std::cout << "18 createDescriptorPool" << std::endl;
+    std::cout << "19 createDescriptorPool" << std::endl;
     createDescriptorPool();
-    std::cout << "19 createDescriptorSet" << std::endl;
+    std::cout << "20 createDescriptorSet" << std::endl;
     createDescriptorSet();
-    std::cout << "20 createSkyboxDescriptors" << std::endl;
+    std::cout << "21 createSkyboxDescriptors" << std::endl;
     createSkyboxDescriptors();
-    std::cout << "21 createGraphicsPipeline" << std::endl;
+    std::cout << "22 createTonemapDescriptors" << std::endl;
+    createTonemapDescriptors();    // ← HDR image exists now, safe to write descriptor
+    std::cout << "23 createGraphicsPipeline" << std::endl;
     createGraphicsPipeline();
-    std::cout << "22 createSkyboxPipeline" << std::endl;
+    std::cout << "24 createSkyboxPipeline" << std::endl;
     createSkyboxPipeline();
-    std::cout << "23 loading mesh" << std::endl;
+    std::cout << "25 createTonemapPipeline" << std::endl;
+    createTonemapPipeline();
+    std::cout << "26 loading mesh" << std::endl;
     Mesh mesh = MeshLoader::load(std::string(ASSETS_PATH) + "cube.obj");
-    std::cout << "24 createVertexBuffer" << std::endl;
+    std::cout << "27 createVertexBuffer" << std::endl;
     createVertexBuffer(mesh.vertices);
-    std::cout << "25 createIndexBuffer" << std::endl;
+    std::cout << "28 createIndexBuffer" << std::endl;
     createIndexBuffer(mesh.indices);
     std::cout << "Renderer ready!" << std::endl;
 }
@@ -178,6 +184,18 @@ Renderer::~Renderer() {
     vkDestroyImageView(m_device, m_cubemapImageView, nullptr);
     vkDestroyImage(m_device, m_cubemapImage, nullptr);
     vkFreeMemory(m_device, m_cubemapMemory, nullptr);   
+
+    vkDestroyPipeline(m_device, m_tonemapPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_tonemapPipelineLayout, nullptr);
+    vkDestroyRenderPass(m_device, m_tonemapRenderPass, nullptr);
+    vkDestroyRenderPass(m_device, m_hdrRenderPass, nullptr);
+    vkDestroyDescriptorPool(m_device, m_tonemapDescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(m_device, m_tonemapDescriptorSetLayout, nullptr);
+    vkDestroySampler(m_device, m_hdrSampler, nullptr);
+    vkDestroyImageView(m_device, m_hdrImageView, nullptr);
+    vkDestroyImage(m_device, m_hdrImage, nullptr);
+    vkFreeMemory(m_device, m_hdrMemory, nullptr);
+    vkDestroyFramebuffer(m_device, m_hdrFramebuffer, nullptr);
 
 
 
@@ -516,18 +534,18 @@ void Renderer::drawFrame() {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    // shadow pass first
+    // 1 — shadow pass
     drawShadowPass(cmd);
 
-    // main pass
+    // 2 — HDR geometry pass — renders into float framebuffer
     std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color        = VkClearColorValue{{0.01f, 0.01f, 0.01f, 1.0f}};
+    clearValues[0].color        = VkClearColorValue{{0.0f, 0.0f, 0.0f, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rpInfo{};
     rpInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rpInfo.renderPass        = m_renderPass;
-    rpInfo.framebuffer       = m_framebuffers[imageIndex];
+    rpInfo.renderPass        = m_hdrRenderPass;
+    rpInfo.framebuffer       = m_hdrFramebuffer;
     rpInfo.renderArea.offset = {0, 0};
     rpInfo.renderArea.extent = m_swapchainExtent;
     rpInfo.clearValueCount   = static_cast<uint32_t>(clearValues.size());
@@ -544,6 +562,30 @@ void Renderer::drawFrame() {
         vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
         drawSkybox(cmd);
     vkCmdEndRenderPass(cmd);
+
+    // transition HDR image from COLOR_ATTACHMENT_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
+    VkImageMemoryBarrier hdrBarrier{};
+    hdrBarrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    hdrBarrier.oldLayout                       = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    hdrBarrier.newLayout                       = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    hdrBarrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+    hdrBarrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+    hdrBarrier.image                           = m_hdrImage;
+    hdrBarrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    hdrBarrier.subresourceRange.baseMipLevel   = 0;
+    hdrBarrier.subresourceRange.levelCount     = 1;
+    hdrBarrier.subresourceRange.baseArrayLayer = 0;
+    hdrBarrier.subresourceRange.layerCount     = 1;
+    hdrBarrier.srcAccessMask                   = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    hdrBarrier.dstAccessMask                   = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &hdrBarrier);
+
+    // 3 — tonemap pass — reads HDR image, outputs LDR to swapchain
+    drawTonemapPass(cmd, imageIndex);
 
     vkEndCommandBuffer(cmd);
 
@@ -571,6 +613,7 @@ void Renderer::drawFrame() {
 
     vkQueuePresentKHR(m_graphicsQueue, &presentInfo);
 }
+
 static std::vector<char> readFile(const std::string& path) {
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
@@ -704,7 +747,7 @@ void Renderer::createGraphicsPipeline() {
     pipelineInfo.pColorBlendState    = &colorBlend;
     pipelineInfo.pDepthStencilState  = &depthStencil;
     pipelineInfo.layout              = m_pipelineLayout;
-    pipelineInfo.renderPass          = m_renderPass;
+    pipelineInfo.renderPass = m_hdrRenderPass; // ← was m_renderPass
     pipelineInfo.subpass             = 0;
 
     VkResult result = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
@@ -2008,7 +2051,7 @@ void Renderer::createSkyboxPipeline() {
     pipelineInfo.pDepthStencilState  = &depthStencil;
     pipelineInfo.pColorBlendState    = &colorBlend;
     pipelineInfo.layout              = m_skyboxPipelineLayout;
-    pipelineInfo.renderPass          = m_renderPass;
+    pipelineInfo.renderPass = m_hdrRenderPass; // ← was m_renderPass
     pipelineInfo.subpass             = 0;
 
     if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
@@ -2027,4 +2070,422 @@ void Renderer::drawSkybox(VkCommandBuffer cmd) {
         m_skyboxPipelineLayout, 0, 1, &m_skyboxDescriptorSet, 0, nullptr);
     // 36 vertices hardcoded in shader — no vertex buffer bind needed
     vkCmdDraw(cmd, 36, 1, 0, 0);
+}
+
+void Renderer::createHDRRenderPass() {
+    // HDR color attachment — float format holds values > 1.0
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format         = VK_FORMAT_R16G16B16A16_SFLOAT;
+    colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format         = findDepthFormat();
+    depthAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthRef{};
+    depthRef.attachment = 1;
+    depthRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 1;
+    subpass.pColorAttachments       = &colorRef;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    std::array<VkSubpassDependency, 2> deps{};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                          | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+                          | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    deps[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+
+    VkRenderPassCreateInfo rpInfo{};
+    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    rpInfo.pAttachments    = attachments.data();
+    rpInfo.subpassCount    = 1;
+    rpInfo.pSubpasses      = &subpass;
+    rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
+    rpInfo.pDependencies   = deps.data();
+
+    if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_hdrRenderPass) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create HDR render pass");
+}
+
+void Renderer::createHDRResources() {
+    createHDRRenderPass();
+
+    // HDR color image — float format
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+    imageInfo.extent        = {m_swapchainExtent.width, m_swapchainExtent.height, 1};
+    imageInfo.mipLevels     = 1;
+    imageInfo.arrayLayers   = 1;
+    imageInfo.format        = VK_FORMAT_R16G16B16A16_SFLOAT;
+    imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                            | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_hdrImage) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create HDR image");
+
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(m_device, m_hdrImage, &memReqs);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize  = memReqs.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_hdrMemory) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate HDR memory");
+
+    vkBindImageMemory(m_device, m_hdrImage, m_hdrMemory, 0);
+
+    // image view
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image                           = m_hdrImage;
+    viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format                          = VK_FORMAT_R16G16B16A16_SFLOAT;
+    viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel   = 0;
+    viewInfo.subresourceRange.levelCount     = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount     = 1;
+
+    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_hdrImageView) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create HDR image view");
+
+    // sampler for tonemapping pass to read from
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter    = VK_FILTER_LINEAR;
+    samplerInfo.minFilter    = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_hdrSampler) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create HDR sampler");
+
+    // framebuffer — HDR color + existing depth
+    std::array<VkImageView, 2> attachments = {m_hdrImageView, m_depthImageView};
+
+    VkFramebufferCreateInfo fbInfo{};
+    fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbInfo.renderPass      = m_hdrRenderPass;
+    fbInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    fbInfo.pAttachments    = attachments.data();
+    fbInfo.width           = m_swapchainExtent.width;
+    fbInfo.height          = m_swapchainExtent.height;
+    fbInfo.layers          = 1;
+
+    if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_hdrFramebuffer) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create HDR framebuffer");
+
+    std::cout << "HDR resources created!" << std::endl;
+}
+
+void Renderer::createTonemapDescriptors() {
+    // layout — just one sampler for the HDR image
+    VkDescriptorSetLayoutBinding samplerBinding{};
+    samplerBinding.binding         = 0;
+    samplerBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerBinding.descriptorCount = 1;
+    samplerBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings    = &samplerBinding;
+
+    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr,
+            &m_tonemapDescriptorSetLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create tonemap descriptor set layout");
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes    = &poolSize;
+    poolInfo.maxSets       = 1;
+
+    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_tonemapDescriptorPool) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create tonemap descriptor pool");
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool     = m_tonemapDescriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts        = &m_tonemapDescriptorSetLayout;
+
+    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_tonemapDescriptorSet) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate tonemap descriptor set");
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView   = m_hdrImageView;
+    imageInfo.sampler     = m_hdrSampler;
+
+    VkWriteDescriptorSet write{};
+    write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet          = m_tonemapDescriptorSet;
+    write.dstBinding      = 0;
+    write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.descriptorCount = 1;
+    write.pImageInfo      = &imageInfo;
+
+    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+    std::cout << "Tonemap descriptors created!" << std::endl;
+}
+
+void Renderer::createTonemapPipeline() {
+    
+    // tonemap render pass — renders directly to swapchain
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format         = m_swapchainFormat;
+    colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments    = &colorRef;
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass    = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.srcAccessMask = 0;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo rpInfo{};
+    rpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpInfo.attachmentCount = 1;
+    rpInfo.pAttachments    = &colorAttachment;
+    rpInfo.subpassCount    = 1;
+    rpInfo.pSubpasses      = &subpass;
+    rpInfo.dependencyCount = 1;
+    rpInfo.pDependencies   = &dep;
+    
+
+    if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_tonemapRenderPass) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create tonemap render pass");
+
+    // rebuild swapchain framebuffers to use tonemap render pass
+    for (auto fb : m_framebuffers)
+        vkDestroyFramebuffer(m_device, fb, nullptr);
+    m_framebuffers.resize(m_swapchainImageViews.size());
+    for (size_t i = 0; i < m_swapchainImageViews.size(); i++) {
+        VkFramebufferCreateInfo fbInfo{};
+        fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass      = m_tonemapRenderPass;
+        fbInfo.attachmentCount = 1;
+        fbInfo.pAttachments    = &m_swapchainImageViews[i];
+        fbInfo.width           = m_swapchainExtent.width;
+        fbInfo.height          = m_swapchainExtent.height;
+        fbInfo.layers          = 1;
+        if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_framebuffers[i]) != VK_SUCCESS)
+            throw std::runtime_error("Failed to create tonemap framebuffer");
+    }
+
+    std::cout << "tonemap renderpass: " << m_tonemapRenderPass << std::endl;
+    std::cout << "tonemap descriptorSetLayout: " << m_tonemapDescriptorSetLayout << std::endl;
+    std::cout << "creating tonemap pipeline..." << std::endl;
+
+    // pipeline
+    auto vertCode   = readFile("shaders/tonemap.vert.spv");
+    auto fragCode   = readFile("shaders/tonemap.frag.spv");
+    auto vertModule = createShaderModule(m_device, vertCode);
+    auto fragModule = createShaderModule(m_device, fragCode);
+
+    VkPipelineShaderStageCreateInfo vertStage{};
+    vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertStage.stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    vertStage.module = vertModule;
+    vertStage.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo fragStage{};
+    fragStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragStage.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragStage.module = fragModule;
+    fragStage.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo stages[] = {vertStage, fragStage};
+
+    // no vertex input
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 0;
+    vertexInput.vertexAttributeDescriptionCount = 0;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkViewport viewport{};
+    viewport.x        = 0.0f;
+    viewport.y        = 0.0f;
+    viewport.width    = static_cast<float>(m_swapchainExtent.width);
+    viewport.height   = static_cast<float>(m_swapchainExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = m_swapchainExtent;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports    = &viewport;
+    viewportState.scissorCount  = 1;
+    viewportState.pScissors     = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode    = VK_CULL_MODE_NONE;
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    blendAttachment.blendEnable    = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttachment;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable       = VK_FALSE;
+    depthStencil.depthWriteEnable      = VK_FALSE;
+    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable     = VK_FALSE;
+
+    // push constant for exposure value
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = sizeof(float);
+
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 1;
+    layoutInfo.pSetLayouts            = &m_tonemapDescriptorSetLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
+
+
+    
+    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_tonemapPipelineLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create tonemap pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.layout              = m_tonemapPipelineLayout;
+    pipelineInfo.renderPass          = m_tonemapRenderPass;
+    pipelineInfo.subpass             = 0;
+    
+
+    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+            &pipelineInfo, nullptr, &m_tonemapPipeline) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create tonemap pipeline");
+
+    vkDestroyShaderModule(m_device, vertModule, nullptr);
+    vkDestroyShaderModule(m_device, fragModule, nullptr);
+
+    std::cout << "Tonemap pipeline created!" << std::endl;
+}
+
+void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
+    VkClearValue clearValue{};
+    clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+
+    VkRenderPassBeginInfo rpInfo{};
+    rpInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpInfo.renderPass        = m_tonemapRenderPass;
+    rpInfo.framebuffer       = m_framebuffers[imageIndex];
+    rpInfo.renderArea.offset = {0, 0};
+    rpInfo.renderArea.extent = m_swapchainExtent;
+    rpInfo.clearValueCount   = 1;
+    rpInfo.pClearValues      = &clearValue;
+
+    vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_tonemapPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_tonemapPipelineLayout, 0, 1, &m_tonemapDescriptorSet, 0, nullptr);
+        // push exposure value
+        vkCmdPushConstants(cmd, m_tonemapPipelineLayout,
+            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float), &m_exposure);
+        // fullscreen triangle — 3 vertices, no vertex buffer
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
 }

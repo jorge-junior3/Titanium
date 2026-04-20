@@ -34,7 +34,7 @@ void Camera::processEvent(const SDL_Event& event) {
 
     if (event.type == SDL_MOUSEMOTION && m_mouseActive) {
         float xoffset = event.motion.xrel * m_sensitivity;
-        float yoffset = -event.motion.yrel * m_sensitivity;
+        float yoffset = event.motion.yrel * m_sensitivity;
         m_yaw += xoffset;
         m_pitch += yoffset;
 
@@ -58,8 +58,8 @@ void Camera::update(float deltaTime) {
     if (m_keys[2]) m_position -= m_front * velocity;  // S
     if (m_keys[1]) m_position -= right   * velocity;  // A
     if (m_keys[3]) m_position += right   * velocity;  // D
-    if (m_keys[4]) m_position += cameraUp * velocity; // E
-    if (m_keys[5]) m_position -= cameraUp * velocity; // Q
+    if (m_keys[4]) m_position -= cameraUp * velocity; // E
+    if (m_keys[5]) m_position += cameraUp * velocity; // Q
 }
 
 glm::mat4 Camera::getView() const {
