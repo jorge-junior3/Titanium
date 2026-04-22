@@ -117,6 +117,16 @@ add_executable(Titanium
   src/core/Window.cpp
   src/core/Camera.cpp
   src/renderer/Renderer.cpp
+  src/renderer/Instance.cpp
+  src/renderer/Buffers.cpp
+  src/renderer/Commands.cpp
+  src/renderer/Descriptors.cpp
+  src/renderer/HDR.cpp
+  src/renderer/Pipelines.cpp
+  src/renderer/RenderPasses.cpp
+  src/renderer/Shadow.cpp
+  src/renderer/Skybox.cpp
+  src/renderer/Textures.cpp
   src/renderer/MeshLoader.cpp
 )
 

@@ -5,8 +5,12 @@
 #include <vector>
 #include <array>
 #include <string>
-#include "Mesh.h"
 #include <glm/glm.hpp>
+#include "Mesh.h"
+
+// ============================================================
+// Uniform buffer objects
+// ============================================================
 
 struct UniformBufferObject {
     glm::mat4 model;
@@ -16,27 +20,60 @@ struct UniformBufferObject {
     glm::mat4 lightSpaceMatrix;
 };
 
+struct ShadowUBO {
+    glm::mat4 lightSpaceMatrix;
+};
 
+// ============================================================
+// Renderer
+// ============================================================
 
 class Renderer {
 public:
     Renderer(SDL_Window* window);
     ~Renderer();
+
     void drawFrame();
     void updateUniformBuffer(const UniformBufferObject& ubo);
 
 private:
+
+    // --------------------------------------------------------
+    // Init groups
+    // --------------------------------------------------------
+    void initVulkan();
+    void initRenderPasses();
+    void initResources();
+    void initPipelines();
+    void initAssets();
+
+    // --------------------------------------------------------
+    // Destroy groups
+    // --------------------------------------------------------
+    void destroySync();
+    void destroyAssets();
+    void destroyPipelines();
+    void destroyResources();
+    void destroyVulkan();
+
+    // --------------------------------------------------------
+    // Frame
+    // --------------------------------------------------------
+    void drawHDRPass(VkCommandBuffer cmd);
+    void submitFrame(VkCommandBuffer cmd, uint32_t imageIndex);
+
+    // --------------------------------------------------------
+    // Vulkan core — instance, device, swapchain
+    // --------------------------------------------------------
     void createInstance();
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createSurface();
     void createSwapchain();
-    void createRenderPass();
-    void createFramebuffers();
     void createCommandPool();
     void createCommandBuffers();
     void createSyncObjects();
-    void createGraphicsPipeline();  // ← was missing
+    void destroySwapchain();
 
     VkInstance       m_instance       = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
@@ -46,129 +83,173 @@ private:
     VkSwapchainKHR   m_swapchain      = VK_NULL_HANDLE;
     VkFormat         m_swapchainFormat;
     VkExtent2D       m_swapchainExtent;
-    VkRenderPass     m_renderPass     = VK_NULL_HANDLE;
-    VkCommandPool    m_commandPool    = VK_NULL_HANDLE;
-    VkPipeline       m_pipeline       = VK_NULL_HANDLE;  // ← was missing
-    VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;  // ← was missing
 
     std::vector<VkImage>         m_swapchainImages;
     std::vector<VkImageView>     m_swapchainImageViews;
     std::vector<VkFramebuffer>   m_framebuffers;
     std::vector<VkCommandBuffer> m_commandBuffers;
 
-    VkSemaphore m_imageAvailable = VK_NULL_HANDLE;
-    VkSemaphore m_renderFinished = VK_NULL_HANDLE;
-    VkFence     m_inFlight       = VK_NULL_HANDLE;
-
-    // Shadow mapping
-    
+    VkCommandPool m_commandPool    = VK_NULL_HANDLE;
+    VkSemaphore   m_imageAvailable = VK_NULL_HANDLE;
+    VkSemaphore   m_renderFinished = VK_NULL_HANDLE;
+    VkFence       m_inFlight       = VK_NULL_HANDLE;
 
     uint32_t    m_graphicsFamily = 0;
     SDL_Window* m_window         = nullptr;
 
+    // --------------------------------------------------------
+    // Depth
+    // --------------------------------------------------------
+    void createDepthResources();
+    void destroyDepthResources();
+    VkFormat findDepthFormat();
+
+    VkImage        m_depthImage       = VK_NULL_HANDLE;
+    VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
+    VkImageView    m_depthImageView   = VK_NULL_HANDLE;
+
+    // --------------------------------------------------------
+    // Main render pass
+    // --------------------------------------------------------
+    void createRenderPass();
+    void createFramebuffers();
+
+    VkRenderPass   m_renderPass   = VK_NULL_HANDLE;
+    VkPipeline     m_pipeline     = VK_NULL_HANDLE;
+    VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
+
+    // --------------------------------------------------------
+    // Main graphics pipeline
+    // --------------------------------------------------------
+    void createGraphicsPipeline();
+
+    // --------------------------------------------------------
+    // Descriptors
+    // --------------------------------------------------------
+    void createDescriptorSetLayout();
+    void createDescriptorPool();
+    void createDescriptorSet();
+    void destroyDescriptors();
+
+    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool      m_descriptorPool      = VK_NULL_HANDLE;
+    VkDescriptorSet       m_descriptorSet       = VK_NULL_HANDLE;
+
+    // --------------------------------------------------------
+    // Uniform buffer
+    // --------------------------------------------------------
+    void createUniformBuffer();
+
+    VkBuffer       m_uniformBuffer       = VK_NULL_HANDLE;
+    VkDeviceMemory m_uniformBufferMemory = VK_NULL_HANDLE;
+    void*          m_uniformMapped       = nullptr;
+
+    // --------------------------------------------------------
+    // Geometry buffers
+    // --------------------------------------------------------
     void createVertexBuffer(const std::vector<Vertex>& vertices);
     void createIndexBuffer(const std::vector<uint32_t>& indices);
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    void destroyBuffers();
 
     VkBuffer       m_vertexBuffer       = VK_NULL_HANDLE;
     VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer       m_indexBuffer        = VK_NULL_HANDLE;
     VkDeviceMemory m_indexBufferMemory  = VK_NULL_HANDLE;
     uint32_t       m_indexCount         = 0;
-    
-    void createDescriptorSetLayout();
-    void createUniformBuffer();
-    void createDescriptorPool();
-    void createDescriptorSet();
 
-    VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool      m_descriptorPool      = VK_NULL_HANDLE;
-    VkDescriptorSet       m_descriptorSet       = VK_NULL_HANDLE;
-    VkBuffer              m_uniformBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory        m_uniformBufferMemory = VK_NULL_HANDLE;
-    void*                 m_uniformMapped       = nullptr;
-
-    VkImage        m_depthImage       = VK_NULL_HANDLE;
-    VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
-    VkImageView    m_depthImageView   = VK_NULL_HANDLE;
-
-    void createDepthResources();
-    VkFormat findDepthFormat();
-
-    // add to private members:
-    VkImage        m_textureImage       = VK_NULL_HANDLE;
-    VkDeviceMemory m_textureMemory      = VK_NULL_HANDLE;
-    VkImageView    m_textureImageView   = VK_NULL_HANDLE;
-    VkSampler      m_textureSampler     = VK_NULL_HANDLE;
-
-    // add private methods:
-    void createTextureImage(const std::string& path);
-    void createTextureImageView();
-    void createTextureSampler();
-    VkCommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(VkCommandBuffer cmd);
-    void transitionImageLayout(VkImage image, VkFormat format,
-                               VkImageLayout oldLayout, VkImageLayout newLayout);
-    void copyBufferToImage(VkBuffer buffer, VkImage image,
-                           uint32_t width, uint32_t height);
-    // PBR textures — one set per map
-    VkImage        m_albedoImage       = VK_NULL_HANDLE;
-    VkDeviceMemory m_albedoMemory      = VK_NULL_HANDLE;
-    VkImageView    m_albedoImageView   = VK_NULL_HANDLE;
-
-    VkImage        m_normalImage       = VK_NULL_HANDLE;
-    VkDeviceMemory m_normalMemory      = VK_NULL_HANDLE;
-    VkImageView    m_normalImageView   = VK_NULL_HANDLE;
-
-    VkImage        m_roughnessImage       = VK_NULL_HANDLE;
-    VkDeviceMemory m_roughnessMemory      = VK_NULL_HANDLE;
-    VkImageView    m_roughnessImageView   = VK_NULL_HANDLE;
-
-    VkImage        m_metallicImage       = VK_NULL_HANDLE;
-    VkDeviceMemory m_metallicMemory      = VK_NULL_HANDLE;
-    VkImageView    m_metallicImageView   = VK_NULL_HANDLE;
-
-    VkSampler      m_pbrSampler = VK_NULL_HANDLE;
-
+    // --------------------------------------------------------
+    // PBR textures
+    // --------------------------------------------------------
     void loadPBRTextures();
+    void createPBRSampler();
+    void destroyPBRTextures();
+
+    VkImage        m_albedoImage      = VK_NULL_HANDLE;
+    VkDeviceMemory m_albedoMemory     = VK_NULL_HANDLE;
+    VkImageView    m_albedoImageView  = VK_NULL_HANDLE;
+
+    VkImage        m_normalImage      = VK_NULL_HANDLE;
+    VkDeviceMemory m_normalMemory     = VK_NULL_HANDLE;
+    VkImageView    m_normalImageView  = VK_NULL_HANDLE;
+
+    VkImage        m_roughnessImage      = VK_NULL_HANDLE;
+    VkDeviceMemory m_roughnessMemory     = VK_NULL_HANDLE;
+    VkImageView    m_roughnessImageView  = VK_NULL_HANDLE;
+
+    VkImage        m_metallicImage      = VK_NULL_HANDLE;
+    VkDeviceMemory m_metallicMemory     = VK_NULL_HANDLE;
+    VkImageView    m_metallicImageView  = VK_NULL_HANDLE;
+
+    VkSampler m_pbrSampler = VK_NULL_HANDLE;
+
+    // --------------------------------------------------------
+    // Texture utilities
+    // --------------------------------------------------------
     VkImageView createImageView(VkImage image, VkFormat format);
     void createImageAndView(const std::string& path, bool srgb,
                             VkImage& image, VkDeviceMemory& memory, VkImageView& view);
-    void createPBRSampler();
-    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
-    VkImage        m_shadowImage           = VK_NULL_HANDLE;
-    VkDeviceMemory m_shadowMemory          = VK_NULL_HANDLE;
-    VkImageView    m_shadowImageView       = VK_NULL_HANDLE;
-    VkSampler      m_shadowSampler         = VK_NULL_HANDLE;
-    VkRenderPass   m_shadowRenderPass      = VK_NULL_HANDLE;
-    VkFramebuffer  m_shadowFramebuffer     = VK_NULL_HANDLE;
-    VkPipeline     m_shadowPipeline        = VK_NULL_HANDLE;
-    VkPipelineLayout m_shadowPipelineLayout = VK_NULL_HANDLE;
-    VkBuffer       m_shadowUniformBuffer   = VK_NULL_HANDLE;
-    VkDeviceMemory m_shadowUniformMemory   = VK_NULL_HANDLE;
-    void*          m_shadowUniformMapped   = nullptr;
+    void createTextureImage(const std::string& path);
+    void createTextureImageView();
+    void createTextureSampler();
 
-    struct ShadowUBO {
-        glm::mat4 lightSpaceMatrix;
-    };
+    VkImage        m_textureImage     = VK_NULL_HANDLE;
+    VkDeviceMemory m_textureMemory    = VK_NULL_HANDLE;
+    VkImageView    m_textureImageView = VK_NULL_HANDLE;
+    VkSampler      m_textureSampler   = VK_NULL_HANDLE;
+
+    // --------------------------------------------------------
+    // Command utilities
+    // --------------------------------------------------------
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer cmd);
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void transitionImageLayout(VkImage image, VkFormat format,
+                               VkImageLayout oldLayout, VkImageLayout newLayout);
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+    // --------------------------------------------------------
+    // Shadow system
+    // --------------------------------------------------------
+    void createShadowResources();
+    void createShadowRenderPass();
+    void createShadowFramebuffer();
+    void createShadowDescriptors();
+    void createShadowPipeline();
+    void drawShadowPass(VkCommandBuffer cmd);
+    void destroyShadowResources();
+    glm::mat4 getLightSpaceMatrix();
+
+    static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
+
+    VkImage        m_shadowImage          = VK_NULL_HANDLE;
+    VkDeviceMemory m_shadowMemory         = VK_NULL_HANDLE;
+    VkImageView    m_shadowImageView      = VK_NULL_HANDLE;
+    VkSampler      m_shadowSampler        = VK_NULL_HANDLE;
+    VkRenderPass   m_shadowRenderPass     = VK_NULL_HANDLE;
+    VkFramebuffer  m_shadowFramebuffer    = VK_NULL_HANDLE;
+    VkPipeline     m_shadowPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout m_shadowPipelineLayout = VK_NULL_HANDLE;
+    VkBuffer       m_shadowUniformBuffer  = VK_NULL_HANDLE;
+    VkDeviceMemory m_shadowUniformMemory  = VK_NULL_HANDLE;
+    void*          m_shadowUniformMapped  = nullptr;
 
     VkDescriptorSetLayout m_shadowDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool      m_shadowDescriptorPool      = VK_NULL_HANDLE;
     VkDescriptorSet       m_shadowDescriptorSet       = VK_NULL_HANDLE;
 
-    void createShadowResources();
-    void createShadowRenderPass();
-    void createShadowFramebuffer();
-    void createShadowPipeline();
-    void createShadowDescriptors();
-    void drawShadowPass(VkCommandBuffer cmd);
-    glm::mat4 getLightSpaceMatrix();
+    // --------------------------------------------------------
+    // Skybox system
+    // --------------------------------------------------------
+    void createCubemap();
+    void createSkyboxDescriptors();
+    void createSkyboxPipeline();
+    void drawSkybox(VkCommandBuffer cmd);
+    void destroySkyboxResources();
 
-    // skybox
-    VkImage        m_cubemapImage      = VK_NULL_HANDLE;
-    VkDeviceMemory m_cubemapMemory     = VK_NULL_HANDLE;
-    VkImageView    m_cubemapImageView  = VK_NULL_HANDLE;
-    VkSampler      m_cubemapSampler    = VK_NULL_HANDLE;
+    VkImage        m_cubemapImage     = VK_NULL_HANDLE;
+    VkDeviceMemory m_cubemapMemory    = VK_NULL_HANDLE;
+    VkImageView    m_cubemapImageView = VK_NULL_HANDLE;
+    VkSampler      m_cubemapSampler   = VK_NULL_HANDLE;
 
     VkDescriptorSetLayout m_skyboxDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool      m_skyboxDescriptorPool      = VK_NULL_HANDLE;
@@ -177,12 +258,18 @@ private:
     VkPipeline       m_skyboxPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout m_skyboxPipelineLayout = VK_NULL_HANDLE;
 
-    void createCubemap();
-    void createSkyboxPipeline();
-    void createSkyboxDescriptors();
-    void drawSkybox(VkCommandBuffer cmd);
+    // --------------------------------------------------------
+    // HDR + tonemapping system
+    // --------------------------------------------------------
+    void createHDRRenderPass();
+    void createHDRResources();
+    void createHDRPipeline();
+    void createTonemapDescriptors();
+    void createTonemapPipeline();
+    void createTonemapPass();
+    void drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex);
+    void destroyHDRResources();
 
-    // HDR offscreen rendering
     VkImage        m_hdrImage       = VK_NULL_HANDLE;
     VkDeviceMemory m_hdrMemory      = VK_NULL_HANDLE;
     VkImageView    m_hdrImageView   = VK_NULL_HANDLE;
@@ -190,20 +277,16 @@ private:
     VkRenderPass   m_hdrRenderPass  = VK_NULL_HANDLE;
     VkFramebuffer  m_hdrFramebuffer = VK_NULL_HANDLE;
 
-    // tonemapping pass
-    VkRenderPass     m_tonemapRenderPass  = VK_NULL_HANDLE;
-    VkPipeline       m_tonemapPipeline    = VK_NULL_HANDLE;
+    VkPipeline     m_hdrPipeline     = VK_NULL_HANDLE;
+    VkPipelineLayout m_hdrPipelineLayout = VK_NULL_HANDLE;
+
+    VkRenderPass     m_tonemapRenderPass     = VK_NULL_HANDLE;
+    VkPipeline       m_tonemapPipeline       = VK_NULL_HANDLE;
     VkPipelineLayout m_tonemapPipelineLayout = VK_NULL_HANDLE;
+
     VkDescriptorSetLayout m_tonemapDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool      m_tonemapDescriptorPool      = VK_NULL_HANDLE;
     VkDescriptorSet       m_tonemapDescriptorSet       = VK_NULL_HANDLE;
 
-    float m_exposure = 1.0f; // tweak this to control brightness
-
-    void createHDRResources();
-    void createHDRRenderPass();
-    void createTonemapPass();
-    void createTonemapPipeline();
-    void createTonemapDescriptors();
-    void drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex);
+    float m_exposure = 1.0f;
 };
