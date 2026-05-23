@@ -43,7 +43,7 @@ void Renderer::createSkyboxDescriptors() {
     layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings    = bindings.data();
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr,
+    if (vkCreateDescriptorSetLayout(m_vulkanContext->getDevice(), &layoutInfo, nullptr,
             &m_skyboxDescriptorSetLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create skybox descriptor set layout");
 
@@ -59,7 +59,7 @@ void Renderer::createSkyboxDescriptors() {
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes    = poolSizes.data();
     poolInfo.maxSets       = 1;
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_skyboxDescriptorPool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(m_vulkanContext->getDevice(), &poolInfo, nullptr, &m_skyboxDescriptorPool) != VK_SUCCESS)
         throw std::runtime_error("Failed to create skybox descriptor pool");
 
     // allocate set
@@ -68,7 +68,7 @@ void Renderer::createSkyboxDescriptors() {
     allocInfo.descriptorPool     = m_skyboxDescriptorPool;
     allocInfo.descriptorSetCount = 1;
     allocInfo.pSetLayouts        = &m_skyboxDescriptorSetLayout;
-    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_skyboxDescriptorSet) != VK_SUCCESS)
+    if (vkAllocateDescriptorSets(m_vulkanContext->getDevice(), &allocInfo, &m_skyboxDescriptorSet) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate skybox descriptor set");
 
     // write UBO
@@ -98,15 +98,15 @@ void Renderer::createSkyboxDescriptors() {
     writes[1].descriptorCount = 1;
     writes[1].pImageInfo      = &imageInfo;
 
-    vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(m_vulkanContext->getDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     std::cout << "Skybox descriptors created!" << std::endl;
 }
 
 void Renderer::createSkyboxPipeline() {
     auto vertCode   = readFile("shaders/skybox.vert.spv");
     auto fragCode   = readFile("shaders/skybox.frag.spv");
-    auto vertModule = createShaderModule(m_device, vertCode);
-    auto fragModule = createShaderModule(m_device, fragCode);
+    auto vertModule = createShaderModule(m_vulkanContext->getDevice(), vertCode);
+    auto fragModule = createShaderModule(m_vulkanContext->getDevice(), fragCode);
 
     VkPipelineShaderStageCreateInfo vertStage{};
     vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -135,14 +135,14 @@ void Renderer::createSkyboxPipeline() {
     VkViewport viewport{};
     viewport.x        = 0.0f;
     viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(m_swapchainExtent.width);
-    viewport.height   = static_cast<float>(m_swapchainExtent.height);
+    viewport.width    = static_cast<float>(m_vulkanContext->getSwapchainExtent().width);
+    viewport.height   = static_cast<float>(m_vulkanContext->getSwapchainExtent().height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = m_swapchainExtent;
+    scissor.extent = m_vulkanContext->getSwapchainExtent();
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -184,7 +184,7 @@ void Renderer::createSkyboxPipeline() {
     layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts    = &m_skyboxDescriptorSetLayout;
-    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_skyboxPipelineLayout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(m_vulkanContext->getDevice(), &layoutInfo, nullptr, &m_skyboxPipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create skybox pipeline layout");
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -202,12 +202,12 @@ void Renderer::createSkyboxPipeline() {
     pipelineInfo.renderPass = m_hdrRenderPass; // ← was m_renderPass
     pipelineInfo.subpass             = 0;
 
-    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+    if (vkCreateGraphicsPipelines(m_vulkanContext->getDevice(), VK_NULL_HANDLE, 1,
             &pipelineInfo, nullptr, &m_skyboxPipeline) != VK_SUCCESS)
         throw std::runtime_error("Failed to create skybox pipeline");
 
-    vkDestroyShaderModule(m_device, vertModule, nullptr);
-    vkDestroyShaderModule(m_device, fragModule, nullptr);
+    vkDestroyShaderModule(m_vulkanContext->getDevice(), vertModule, nullptr);
+    vkDestroyShaderModule(m_vulkanContext->getDevice(), fragModule, nullptr);
 
     std::cout << "Skybox pipeline created!" << std::endl;
 }
@@ -221,12 +221,12 @@ void Renderer::drawSkybox(VkCommandBuffer cmd) {
 }
 
 void Renderer::destroySkyboxResources() {
-    vkDestroyPipeline(m_device, m_skyboxPipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_skyboxPipelineLayout, nullptr);
-    vkDestroyDescriptorPool(m_device, m_skyboxDescriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_skyboxDescriptorSetLayout, nullptr);
-    vkDestroySampler(m_device, m_cubemapSampler, nullptr);
-    vkDestroyImageView(m_device, m_cubemapImageView, nullptr);
-    vkDestroyImage(m_device, m_cubemapImage, nullptr);
-    vkFreeMemory(m_device, m_cubemapMemory, nullptr);
+    vkDestroyPipeline(m_vulkanContext->getDevice(), m_skyboxPipeline, nullptr);
+    vkDestroyPipelineLayout(m_vulkanContext->getDevice(), m_skyboxPipelineLayout, nullptr);
+    vkDestroyDescriptorPool(m_vulkanContext->getDevice(), m_skyboxDescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(m_vulkanContext->getDevice(), m_skyboxDescriptorSetLayout, nullptr);
+    vkDestroySampler(m_vulkanContext->getDevice(), m_cubemapSampler, nullptr);
+    vkDestroyImageView(m_vulkanContext->getDevice(), m_cubemapImageView, nullptr);
+    vkDestroyImage(m_vulkanContext->getDevice(), m_cubemapImage, nullptr);
+    vkFreeMemory(m_vulkanContext->getDevice(), m_cubemapMemory, nullptr);
 }

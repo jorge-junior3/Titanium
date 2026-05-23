@@ -7,6 +7,8 @@
 #include <string>
 #include <glm/glm.hpp>
 #include "Mesh.h"
+#include "VulkanContext.h"
+#include "ResourceManager.h"
 
 // ============================================================
 // Uniform buffer objects
@@ -62,40 +64,17 @@ private:
     void drawHDRPass(VkCommandBuffer cmd);
     void submitFrame(VkCommandBuffer cmd, uint32_t imageIndex);
 
-    // --------------------------------------------------------
-    // Vulkan core — instance, device, swapchain
-    // --------------------------------------------------------
-    void createInstance();
-    void pickPhysicalDevice();
-    void createLogicalDevice();
-    void createSurface();
-    void createSwapchain();
-    void createCommandPool();
-    void createCommandBuffers();
-    void createSyncObjects();
-    void destroySwapchain();
+    VulkanContext* m_vulkanContext;
 
-    VkInstance       m_instance       = VK_NULL_HANDLE;
-    VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-    VkDevice         m_device         = VK_NULL_HANDLE;
-    VkQueue          m_graphicsQueue  = VK_NULL_HANDLE;
-    VkSurfaceKHR     m_surface        = VK_NULL_HANDLE;
-    VkSwapchainKHR   m_swapchain      = VK_NULL_HANDLE;
-    VkFormat         m_swapchainFormat;
-    VkExtent2D       m_swapchainExtent;
+private:
+    VkDevice device() const { return m_vulkanContext->getDevice(); }
+    VkPhysicalDevice physicalDevice() const { return m_vulkanContext->getPhysicalDevice(); }
+    VkFormat swapchainFormat() const { return m_vulkanContext->getSwapchainFormat(); }
+    VkExtent2D swapchainExtent() const { return m_vulkanContext->getSwapchainExtent(); }
+    const std::vector<VkImageView>& swapchainImageViews() const { return m_vulkanContext->getSwapchainImageViews(); }
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const { return m_vulkanContext->findMemoryType(typeFilter, properties); }
 
-    std::vector<VkImage>         m_swapchainImages;
-    std::vector<VkImageView>     m_swapchainImageViews;
-    std::vector<VkFramebuffer>   m_framebuffers;
-    std::vector<VkCommandBuffer> m_commandBuffers;
-
-    VkCommandPool m_commandPool    = VK_NULL_HANDLE;
-    VkSemaphore   m_imageAvailable = VK_NULL_HANDLE;
-    VkSemaphore   m_renderFinished = VK_NULL_HANDLE;
-    VkFence       m_inFlight       = VK_NULL_HANDLE;
-
-    uint32_t    m_graphicsFamily = 0;
-    SDL_Window* m_window         = nullptr;
+    std::vector<VkFramebuffer> m_framebuffers;
 
     // --------------------------------------------------------
     // Depth
@@ -205,7 +184,6 @@ private:
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     void transitionImageLayout(VkImage image, VkFormat format,
                                VkImageLayout oldLayout, VkImageLayout newLayout);
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
     // --------------------------------------------------------
     // Shadow system

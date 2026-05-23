@@ -26,6 +26,7 @@ static VkShaderModule createShaderModule(VkDevice device, const std::vector<char
 }
 
 void Renderer::createTonemapDescriptors() {
+    VkDevice dev = device();
     // layout — just one sampler for the HDR image
     VkDescriptorSetLayoutBinding samplerBinding{};
     samplerBinding.binding         = 0;
@@ -38,7 +39,7 @@ void Renderer::createTonemapDescriptors() {
     layoutInfo.bindingCount = 1;
     layoutInfo.pBindings    = &samplerBinding;
 
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr,
+    if (vkCreateDescriptorSetLayout(dev, &layoutInfo, nullptr,
             &m_tonemapDescriptorSetLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create tonemap descriptor set layout");
 
@@ -52,7 +53,7 @@ void Renderer::createTonemapDescriptors() {
     poolInfo.pPoolSizes    = &poolSize;
     poolInfo.maxSets       = 1;
 
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_tonemapDescriptorPool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(dev, &poolInfo, nullptr, &m_tonemapDescriptorPool) != VK_SUCCESS)
         throw std::runtime_error("Failed to create tonemap descriptor pool");
 
     VkDescriptorSetAllocateInfo allocInfo{};
@@ -61,7 +62,7 @@ void Renderer::createTonemapDescriptors() {
     allocInfo.descriptorSetCount = 1;
     allocInfo.pSetLayouts        = &m_tonemapDescriptorSetLayout;
 
-    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_tonemapDescriptorSet) != VK_SUCCESS)
+    if (vkAllocateDescriptorSets(dev, &allocInfo, &m_tonemapDescriptorSet) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate tonemap descriptor set");
 
     VkDescriptorImageInfo imageInfo{};
@@ -77,15 +78,18 @@ void Renderer::createTonemapDescriptors() {
     write.descriptorCount = 1;
     write.pImageInfo      = &imageInfo;
 
-    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+    vkUpdateDescriptorSets(dev, 1, &write, 0, nullptr);
     std::cout << "Tonemap descriptors created!" << std::endl;
 }
 
 void Renderer::createTonemapPipeline() {
-    
+    VkDevice dev = device();
+    VkFormat swapchainFmt = swapchainFormat();
+    const auto& swapchainImageViews = this->swapchainImageViews();
+    VkExtent2D extent = swapchainExtent();
     // tonemap render pass — renders directly to swapchain
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format         = m_swapchainFormat;
+    colorAttachment.format         = swapchainFmt;
     colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
@@ -121,23 +125,23 @@ void Renderer::createTonemapPipeline() {
     rpInfo.pDependencies   = &dep;
     
 
-    if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_tonemapRenderPass) != VK_SUCCESS)
+    if (vkCreateRenderPass(dev, &rpInfo, nullptr, &m_tonemapRenderPass) != VK_SUCCESS)
         throw std::runtime_error("Failed to create tonemap render pass");
 
     // rebuild swapchain framebuffers to use tonemap render pass
     for (auto fb : m_framebuffers)
-        vkDestroyFramebuffer(m_device, fb, nullptr);
-    m_framebuffers.resize(m_swapchainImageViews.size());
-    for (size_t i = 0; i < m_swapchainImageViews.size(); i++) {
+        vkDestroyFramebuffer(dev, fb, nullptr);
+    m_framebuffers.resize(swapchainImageViews.size());
+    for (size_t i = 0; i < swapchainImageViews.size(); i++) {
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fbInfo.renderPass      = m_tonemapRenderPass;
         fbInfo.attachmentCount = 1;
-        fbInfo.pAttachments    = &m_swapchainImageViews[i];
-        fbInfo.width           = m_swapchainExtent.width;
-        fbInfo.height          = m_swapchainExtent.height;
+        fbInfo.pAttachments    = &swapchainImageViews[i];
+        fbInfo.width           = extent.width;
+        fbInfo.height          = extent.height;
         fbInfo.layers          = 1;
-        if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_framebuffers[i]) != VK_SUCCESS)
+        if (vkCreateFramebuffer(dev, &fbInfo, nullptr, &m_framebuffers[i]) != VK_SUCCESS)
             throw std::runtime_error("Failed to create tonemap framebuffer");
     }
 
@@ -148,8 +152,8 @@ void Renderer::createTonemapPipeline() {
     // pipeline
     auto vertCode   = readFile("shaders/tonemap.vert.spv");
     auto fragCode   = readFile("shaders/tonemap.frag.spv");
-    auto vertModule = createShaderModule(m_device, vertCode);
-    auto fragModule = createShaderModule(m_device, fragCode);
+    auto vertModule = createShaderModule(dev, vertCode);
+    auto fragModule = createShaderModule(dev, fragCode);
 
     VkPipelineShaderStageCreateInfo vertStage{};
     vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -178,14 +182,14 @@ void Renderer::createTonemapPipeline() {
     VkViewport viewport{};
     viewport.x        = 0.0f;
     viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(m_swapchainExtent.width);
-    viewport.height   = static_cast<float>(m_swapchainExtent.height);
+    viewport.width    = static_cast<float>(extent.width);
+    viewport.height   = static_cast<float>(extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = m_swapchainExtent;
+    scissor.extent = extent;
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -238,7 +242,7 @@ void Renderer::createTonemapPipeline() {
 
 
     
-    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_tonemapPipelineLayout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(dev, &layoutInfo, nullptr, &m_tonemapPipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create tonemap pipeline layout");
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -257,17 +261,18 @@ void Renderer::createTonemapPipeline() {
     pipelineInfo.subpass             = 0;
     
 
-    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+    if (vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1,
             &pipelineInfo, nullptr, &m_tonemapPipeline) != VK_SUCCESS)
         throw std::runtime_error("Failed to create tonemap pipeline");
 
-    vkDestroyShaderModule(m_device, vertModule, nullptr);
-    vkDestroyShaderModule(m_device, fragModule, nullptr);
+    vkDestroyShaderModule(dev, vertModule, nullptr);
+    vkDestroyShaderModule(dev, fragModule, nullptr);
 
     std::cout << "Tonemap pipeline created!" << std::endl;
 }
 
 void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
+    VkExtent2D extent = swapchainExtent();
     VkClearValue clearValue{};
     clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
@@ -276,7 +281,7 @@ void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
     rpInfo.renderPass        = m_tonemapRenderPass;
     rpInfo.framebuffer       = m_framebuffers[imageIndex];
     rpInfo.renderArea.offset = {0, 0};
-    rpInfo.renderArea.extent = m_swapchainExtent;
+    rpInfo.renderArea.extent = extent;
     rpInfo.clearValueCount   = 1;
     rpInfo.pClearValues      = &clearValue;
 
@@ -293,6 +298,7 @@ void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
 }
 
 void Renderer::drawHDRPass(VkCommandBuffer cmd) {
+    VkExtent2D extent = swapchainExtent();
     std::array<VkClearValue, 2> clearValues{};
     clearValues[0].color        = VkClearColorValue{{0.0f, 0.0f, 0.0f, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
@@ -302,7 +308,7 @@ void Renderer::drawHDRPass(VkCommandBuffer cmd) {
     rpInfo.renderPass        = m_hdrRenderPass;
     rpInfo.framebuffer       = m_hdrFramebuffer;
     rpInfo.renderArea.offset = {0, 0};
-    rpInfo.renderArea.extent = m_swapchainExtent;
+    rpInfo.renderArea.extent = extent;
     rpInfo.clearValueCount   = static_cast<uint32_t>(clearValues.size());
     rpInfo.pClearValues      = clearValues.data();
 
@@ -335,15 +341,16 @@ void Renderer::drawHDRPass(VkCommandBuffer cmd) {
 }
 
 void Renderer::destroyHDRResources() {
-    vkDestroyPipeline(m_device, m_tonemapPipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_tonemapPipelineLayout, nullptr);
-    vkDestroyRenderPass(m_device, m_tonemapRenderPass, nullptr);
-    vkDestroyRenderPass(m_device, m_hdrRenderPass, nullptr);
-    vkDestroyDescriptorPool(m_device, m_tonemapDescriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_tonemapDescriptorSetLayout, nullptr);
-    vkDestroySampler(m_device, m_hdrSampler, nullptr);
-    vkDestroyImageView(m_device, m_hdrImageView, nullptr);
-    vkDestroyImage(m_device, m_hdrImage, nullptr);
-    vkFreeMemory(m_device, m_hdrMemory, nullptr);
-    vkDestroyFramebuffer(m_device, m_hdrFramebuffer, nullptr);
+    VkDevice dev = device();
+    vkDestroyPipeline(dev, m_tonemapPipeline, nullptr);
+    vkDestroyPipelineLayout(dev, m_tonemapPipelineLayout, nullptr);
+    vkDestroyRenderPass(dev, m_tonemapRenderPass, nullptr);
+    vkDestroyRenderPass(dev, m_hdrRenderPass, nullptr);
+    vkDestroyDescriptorPool(dev, m_tonemapDescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(dev, m_tonemapDescriptorSetLayout, nullptr);
+    vkDestroySampler(dev, m_hdrSampler, nullptr);
+    vkDestroyImageView(dev, m_hdrImageView, nullptr);
+    vkDestroyImage(dev, m_hdrImage, nullptr);
+    vkFreeMemory(dev, m_hdrMemory, nullptr);
+    vkDestroyFramebuffer(dev, m_hdrFramebuffer, nullptr);
 }

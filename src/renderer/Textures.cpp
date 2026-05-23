@@ -22,7 +22,7 @@ VkImageView Renderer::createImageView(VkImage image, VkFormat format) {
     viewInfo.subresourceRange.layerCount     = 1;
 
     VkImageView view;
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &view) != VK_SUCCESS)
+    if (vkCreateImageView(m_vulkanContext->getDevice(), &viewInfo, nullptr, &view) != VK_SUCCESS)
         throw std::runtime_error("Failed to create image view");
     return view;
 }
@@ -45,22 +45,22 @@ void Renderer::createImageAndView(const std::string& path, bool srgb,
     bufInfo.size        = imageSize;
     bufInfo.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer);
+    vkCreateBuffer(m_vulkanContext->getDevice(), &bufInfo, nullptr, &stagingBuffer);
 
     VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
+    vkGetBufferMemoryRequirements(m_vulkanContext->getDevice(), stagingBuffer, &memReqs);
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize  = memReqs.size;
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory);
-    vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
+    vkAllocateMemory(m_vulkanContext->getDevice(), &allocInfo, nullptr, &stagingMemory);
+    vkBindBufferMemory(m_vulkanContext->getDevice(), stagingBuffer, stagingMemory, 0);
 
     void* data;
-    vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &data);
+    vkMapMemory(m_vulkanContext->getDevice(), stagingMemory, 0, imageSize, 0, &data);
     memcpy(data, pixels, imageSize);
-    vkUnmapMemory(m_device, stagingMemory);
+    vkUnmapMemory(m_vulkanContext->getDevice(), stagingMemory);
     stbi_image_free(pixels);
 
     // use SRGB for albedo, UNORM for normal/roughness/metallic
@@ -78,14 +78,14 @@ void Renderer::createImageAndView(const std::string& path, bool srgb,
     imageInfo.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateImage(m_device, &imageInfo, nullptr, &image);
+    vkCreateImage(m_vulkanContext->getDevice(), &imageInfo, nullptr, &image);
 
-    vkGetImageMemoryRequirements(m_device, image, &memReqs);
+    vkGetImageMemoryRequirements(m_vulkanContext->getDevice(), image, &memReqs);
     allocInfo.allocationSize  = memReqs.size;
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vkAllocateMemory(m_device, &allocInfo, nullptr, &memory);
-    vkBindImageMemory(m_device, image, memory, 0);
+    vkAllocateMemory(m_vulkanContext->getDevice(), &allocInfo, nullptr, &memory);
+    vkBindImageMemory(m_vulkanContext->getDevice(), image, memory, 0);
 
     transitionImageLayout(image, format,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -93,8 +93,8 @@ void Renderer::createImageAndView(const std::string& path, bool srgb,
     transitionImageLayout(image, format,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
+    vkDestroyBuffer(m_vulkanContext->getDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(m_vulkanContext->getDevice(), stagingMemory, nullptr);
 
     view = createImageView(image, format);
     std::cout << "Loaded: " << path << " (" << width << "x" << height << ")" << std::endl;
@@ -125,7 +125,7 @@ void Renderer::createPBRSampler() {
     samplerInfo.compareEnable           = VK_FALSE;
     samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_pbrSampler) != VK_SUCCESS)
+    if (vkCreateSampler(m_vulkanContext->getDevice(), &samplerInfo, nullptr, &m_pbrSampler) != VK_SUCCESS)
         throw std::runtime_error("Failed to create PBR sampler");
 }
 
@@ -154,12 +154,12 @@ void Renderer::createTextureImage(const std::string& path) {
     bufInfo.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     std::cout << "Creating staging buffer..." << std::endl; std::cout << std::flush;
-    if (vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer) != VK_SUCCESS)
+    if (vkCreateBuffer(m_vulkanContext->getDevice(), &bufInfo, nullptr, &stagingBuffer) != VK_SUCCESS)
         throw std::runtime_error("Failed to create staging buffer");
     std::cout << "Staging buffer created" << std::endl; std::cout << std::flush;
 
     VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
+    vkGetBufferMemoryRequirements(m_vulkanContext->getDevice(), stagingBuffer, &memReqs);
     std::cout << "Got memory requirements" << std::endl; std::cout << std::flush;
 
     VkMemoryAllocateInfo allocInfo{};
@@ -168,20 +168,20 @@ void Renderer::createTextureImage(const std::string& path) {
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     std::cout << "Allocating staging memory..." << std::endl; std::cout << std::flush;
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(m_vulkanContext->getDevice(), &allocInfo, nullptr, &stagingMemory) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate staging memory");
     std::cout << "Staging memory allocated" << std::endl; std::cout << std::flush;
 
-    if (vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0) != VK_SUCCESS)
+    if (vkBindBufferMemory(m_vulkanContext->getDevice(), stagingBuffer, stagingMemory, 0) != VK_SUCCESS)
         throw std::runtime_error("Failed to bind staging buffer memory");
     std::cout << "Staging buffer bound" << std::endl; std::cout << std::flush;
 
     void* data;
-    vkMapMemory(m_device, stagingMemory, 0, imageSize, 0, &data);
+    vkMapMemory(m_vulkanContext->getDevice(), stagingMemory, 0, imageSize, 0, &data);
     std::cout << "Memory mapped" << std::endl; std::cout << std::flush;
     memcpy(data, pixels, imageSize);
     std::cout << "Pixels copied" << std::endl; std::cout << std::flush;
-    vkUnmapMemory(m_device, stagingMemory);
+    vkUnmapMemory(m_vulkanContext->getDevice(), stagingMemory);
     stbi_image_free(pixels);
     std::cout << "Staging buffer ready" << std::endl; std::cout << std::flush;
 
@@ -198,20 +198,20 @@ void Renderer::createTextureImage(const std::string& path) {
     imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     std::cout << "Creating VkImage..." << std::endl; std::cout << std::flush;
-    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_textureImage) != VK_SUCCESS)
+    if (vkCreateImage(m_vulkanContext->getDevice(), &imageInfo, nullptr, &m_textureImage) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture image");
     std::cout << "VkImage created" << std::endl; std::cout << std::flush;
 
-    vkGetImageMemoryRequirements(m_device, m_textureImage, &memReqs);
+    vkGetImageMemoryRequirements(m_vulkanContext->getDevice(), m_textureImage, &memReqs);
     allocInfo.allocationSize  = memReqs.size;
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     std::cout << "Allocating texture memory..." << std::endl; std::cout << std::flush;
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_textureMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(m_vulkanContext->getDevice(), &allocInfo, nullptr, &m_textureMemory) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate texture memory");
     std::cout << "Texture memory allocated" << std::endl; std::cout << std::flush;
 
-    if (vkBindImageMemory(m_device, m_textureImage, m_textureMemory, 0) != VK_SUCCESS)
+    if (vkBindImageMemory(m_vulkanContext->getDevice(), m_textureImage, m_textureMemory, 0) != VK_SUCCESS)
         throw std::runtime_error("Failed to bind texture image memory");
     std::cout << "Texture image bound" << std::endl; std::cout << std::flush;
 
@@ -225,8 +225,8 @@ void Renderer::createTextureImage(const std::string& path) {
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     std::cout << "Layout transition done" << std::endl; std::cout << std::flush;
 
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
+    vkDestroyBuffer(m_vulkanContext->getDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(m_vulkanContext->getDevice(), stagingMemory, nullptr);
 
     std::cout << "Texture loaded: " << path << " (" << width << "x" << height << ")" << std::endl;
 }
@@ -243,7 +243,7 @@ void Renderer::createTextureImageView() {
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount     = 1;
 
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_textureImageView) != VK_SUCCESS)
+    if (vkCreateImageView(m_vulkanContext->getDevice(), &viewInfo, nullptr, &m_textureImageView) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture image view");
 }
 
@@ -261,7 +261,7 @@ void Renderer::createTextureSampler() {
     samplerInfo.compareEnable           = VK_FALSE;
     samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_textureSampler) != VK_SUCCESS)
+    if (vkCreateSampler(m_vulkanContext->getDevice(), &samplerInfo, nullptr, &m_textureSampler) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture sampler");
 }
 
@@ -295,22 +295,22 @@ void Renderer::createCubemap() {
     bufInfo.size        = totalSize;
     bufInfo.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateBuffer(m_device, &bufInfo, nullptr, &stagingBuffer);
+    vkCreateBuffer(m_vulkanContext->getDevice(), &bufInfo, nullptr, &stagingBuffer);
 
     VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(m_device, stagingBuffer, &memReqs);
+    vkGetBufferMemoryRequirements(m_vulkanContext->getDevice(), stagingBuffer, &memReqs);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize  = memReqs.size;
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory);
-    vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0);
+    vkAllocateMemory(m_vulkanContext->getDevice(), &allocInfo, nullptr, &stagingMemory);
+    vkBindBufferMemory(m_vulkanContext->getDevice(), stagingBuffer, stagingMemory, 0);
 
     // load each face into the staging buffer at the correct offset
     void* data;
-    vkMapMemory(m_device, stagingMemory, 0, totalSize, 0, &data);
+    vkMapMemory(m_vulkanContext->getDevice(), stagingMemory, 0, totalSize, 0, &data);
     for (int i = 0; i < 6; i++) {
         int w, h, c;
         stbi_uc* pixels = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
@@ -320,7 +320,7 @@ void Renderer::createCubemap() {
         stbi_image_free(pixels);
         std::cout << "Loaded cubemap face: " << facePaths[i] << std::endl;
     }
-    vkUnmapMemory(m_device, stagingMemory);
+    vkUnmapMemory(m_vulkanContext->getDevice(), stagingMemory);
 
     // create cubemap image — arrayLayers=6 + CUBE_COMPATIBLE flag
     VkImageCreateInfo imageInfo{};
@@ -337,15 +337,15 @@ void Renderer::createCubemap() {
     imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT; // ← required for cubemap
 
-    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_cubemapImage) != VK_SUCCESS)
+    if (vkCreateImage(m_vulkanContext->getDevice(), &imageInfo, nullptr, &m_cubemapImage) != VK_SUCCESS)
         throw std::runtime_error("Failed to create cubemap image");
 
-    vkGetImageMemoryRequirements(m_device, m_cubemapImage, &memReqs);
+    vkGetImageMemoryRequirements(m_vulkanContext->getDevice(), m_cubemapImage, &memReqs);
     allocInfo.allocationSize  = memReqs.size;
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vkAllocateMemory(m_device, &allocInfo, nullptr, &m_cubemapMemory);
-    vkBindImageMemory(m_device, m_cubemapImage, m_cubemapMemory, 0);
+    vkAllocateMemory(m_vulkanContext->getDevice(), &allocInfo, nullptr, &m_cubemapMemory);
+    vkBindImageMemory(m_vulkanContext->getDevice(), m_cubemapImage, m_cubemapMemory, 0);
 
     // transition all 6 layers to transfer dst
     {
@@ -413,8 +413,8 @@ void Renderer::createCubemap() {
         endSingleTimeCommands(cmd);
     }
 
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
+    vkDestroyBuffer(m_vulkanContext->getDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(m_vulkanContext->getDevice(), stagingMemory, nullptr);
 
     // cubemap image view — viewType must be CUBE
     VkImageViewCreateInfo viewInfo{};
@@ -427,7 +427,7 @@ void Renderer::createCubemap() {
     viewInfo.subresourceRange.levelCount     = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount     = 6;
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_cubemapImageView) != VK_SUCCESS)
+    if (vkCreateImageView(m_vulkanContext->getDevice(), &viewInfo, nullptr, &m_cubemapImageView) != VK_SUCCESS)
         throw std::runtime_error("Failed to create cubemap image view");
 
     // sampler
@@ -440,18 +440,18 @@ void Renderer::createCubemap() {
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.borderColor  = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_cubemapSampler) != VK_SUCCESS)
+    if (vkCreateSampler(m_vulkanContext->getDevice(), &samplerInfo, nullptr, &m_cubemapSampler) != VK_SUCCESS)
         throw std::runtime_error("Failed to create cubemap sampler");
 
     std::cout << "Cubemap loaded!" << std::endl;
 }
 
 void Renderer::destroyPBRTextures() {
-    vkDestroySampler(m_device, m_pbrSampler, nullptr);
+    vkDestroySampler(m_vulkanContext->getDevice(), m_pbrSampler, nullptr);
     auto destroyTex = [&](VkImage img, VkDeviceMemory mem, VkImageView view) {
-        vkDestroyImageView(m_device, view, nullptr);
-        vkDestroyImage(m_device, img, nullptr);
-        vkFreeMemory(m_device, mem, nullptr);
+        vkDestroyImageView(m_vulkanContext->getDevice(), view, nullptr);
+        vkDestroyImage(m_vulkanContext->getDevice(), img, nullptr);
+        vkFreeMemory(m_vulkanContext->getDevice(), mem, nullptr);
     };
     destroyTex(m_albedoImage,    m_albedoMemory,    m_albedoImageView);
     destroyTex(m_normalImage,    m_normalMemory,    m_normalImageView);

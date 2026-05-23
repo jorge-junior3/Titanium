@@ -3,6 +3,7 @@
 #include <iostream>
 
 VkFormat Renderer::findDepthFormat() {
+    VkPhysicalDevice physDevice = physicalDevice();
     // prefer D32, fall back to D32+stencil, then D24+stencil
     for (VkFormat format : {
         VK_FORMAT_D32_SFLOAT,
@@ -10,7 +11,7 @@ VkFormat Renderer::findDepthFormat() {
         VK_FORMAT_D24_UNORM_S8_UINT
     }) {
         VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, format, &props);
+        vkGetPhysicalDeviceFormatProperties(physDevice, format, &props);
         if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
             return format;
     }
@@ -18,14 +19,16 @@ VkFormat Renderer::findDepthFormat() {
 }
 
 void Renderer::createDepthResources() {
+    VkDevice dev = device();
+    VkExtent2D extent = swapchainExtent();
     VkFormat depthFormat = findDepthFormat();
 
     // create image
     VkImageCreateInfo imageInfo{};
     imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType     = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width  = m_swapchainExtent.width;
-    imageInfo.extent.height = m_swapchainExtent.height;
+    imageInfo.extent.width  = extent.width;
+    imageInfo.extent.height = extent.height;
     imageInfo.extent.depth  = 1;
     imageInfo.mipLevels     = 1;
     imageInfo.arrayLayers   = 1;
@@ -36,12 +39,12 @@ void Renderer::createDepthResources() {
     imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_depthImage) != VK_SUCCESS)
+    if (vkCreateImage(dev, &imageInfo, nullptr, &m_depthImage) != VK_SUCCESS)
         throw std::runtime_error("Failed to create depth image");
 
     // allocate memory
     VkMemoryRequirements memReqs;
-    vkGetImageMemoryRequirements(m_device, m_depthImage, &memReqs);
+    vkGetImageMemoryRequirements(dev, m_depthImage, &memReqs);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -49,10 +52,10 @@ void Renderer::createDepthResources() {
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_depthImageMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(dev, &allocInfo, nullptr, &m_depthImageMemory) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate depth image memory");
 
-    vkBindImageMemory(m_device, m_depthImage, m_depthImageMemory, 0);
+    vkBindImageMemory(dev, m_depthImage, m_depthImageMemory, 0);
 
     // create image view
     VkImageViewCreateInfo viewInfo{};
@@ -66,18 +69,20 @@ void Renderer::createDepthResources() {
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount     = 1;
 
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_depthImageView) != VK_SUCCESS)
+    if (vkCreateImageView(dev, &viewInfo, nullptr, &m_depthImageView) != VK_SUCCESS)
         throw std::runtime_error("Failed to create depth image view");
 
     std::cout << "Depth resources created!" << std::endl;
 }
 
 void Renderer::createRenderPass() {
+    VkDevice dev = device();
+    VkFormat fmt = swapchainFormat();
     VkFormat depthFormat = findDepthFormat();
 
     // color attachment (unchanged)
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format         = m_swapchainFormat;
+    colorAttachment.format         = fmt;
     colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
@@ -133,18 +138,21 @@ void Renderer::createRenderPass() {
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies   = &dependency;
 
-    if (vkCreateRenderPass(m_device, &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS)
+    if (vkCreateRenderPass(dev, &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS)
         throw std::runtime_error("Failed to create render pass");
 
     std::cout << "Render pass created!" << std::endl;
 }
 
 void Renderer::createFramebuffers() {
-    m_framebuffers.resize(m_swapchainImageViews.size());
+    VkDevice dev = device();
+    const auto& views = swapchainImageViews();
+    VkExtent2D extent = swapchainExtent();
+    m_framebuffers.resize(views.size());
 
-    for (size_t i = 0; i < m_swapchainImageViews.size(); i++) {
+    for (size_t i = 0; i < views.size(); i++) {
         std::array<VkImageView, 2> attachments = {
-            m_swapchainImageViews[i],
+            views[i],
             m_depthImageView          // ← same depth view for all frames (one frame in flight)
         };
 
@@ -153,11 +161,11 @@ void Renderer::createFramebuffers() {
         fbInfo.renderPass      = m_renderPass;
         fbInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
         fbInfo.pAttachments    = attachments.data();
-        fbInfo.width           = m_swapchainExtent.width;
-        fbInfo.height          = m_swapchainExtent.height;
+        fbInfo.width           = extent.width;
+        fbInfo.height          = extent.height;
         fbInfo.layers          = 1;
 
-        if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_framebuffers[i]) != VK_SUCCESS)
+        if (vkCreateFramebuffer(dev, &fbInfo, nullptr, &m_framebuffers[i]) != VK_SUCCESS)
             throw std::runtime_error("Failed to create framebuffer");
     }
     std::cout << "Framebuffers created: " << m_framebuffers.size() << std::endl;
@@ -229,18 +237,21 @@ void Renderer::createHDRRenderPass() {
     rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
     rpInfo.pDependencies   = deps.data();
 
-    if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_hdrRenderPass) != VK_SUCCESS)
+    if (vkCreateRenderPass(device(), &rpInfo, nullptr, &m_hdrRenderPass) != VK_SUCCESS)
         throw std::runtime_error("Failed to create HDR render pass");
 }
 
 void Renderer::createHDRResources() {
     createHDRRenderPass();
 
+    VkDevice dev = device();
+    VkExtent2D extent = swapchainExtent();
+
     // HDR color image — float format
     VkImageCreateInfo imageInfo{};
     imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType     = VK_IMAGE_TYPE_2D;
-    imageInfo.extent        = {m_swapchainExtent.width, m_swapchainExtent.height, 1};
+    imageInfo.extent        = {extent.width, extent.height, 1};
     imageInfo.mipLevels     = 1;
     imageInfo.arrayLayers   = 1;
     imageInfo.format        = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -251,11 +262,11 @@ void Renderer::createHDRResources() {
     imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_hdrImage) != VK_SUCCESS)
+    if (vkCreateImage(dev, &imageInfo, nullptr, &m_hdrImage) != VK_SUCCESS)
         throw std::runtime_error("Failed to create HDR image");
 
     VkMemoryRequirements memReqs;
-    vkGetImageMemoryRequirements(m_device, m_hdrImage, &memReqs);
+    vkGetImageMemoryRequirements(dev, m_hdrImage, &memReqs);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -263,10 +274,10 @@ void Renderer::createHDRResources() {
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_hdrMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(dev, &allocInfo, nullptr, &m_hdrMemory) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate HDR memory");
 
-    vkBindImageMemory(m_device, m_hdrImage, m_hdrMemory, 0);
+    vkBindImageMemory(dev, m_hdrImage, m_hdrMemory, 0);
 
     // image view
     VkImageViewCreateInfo viewInfo{};
@@ -280,7 +291,7 @@ void Renderer::createHDRResources() {
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount     = 1;
 
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_hdrImageView) != VK_SUCCESS)
+    if (vkCreateImageView(dev, &viewInfo, nullptr, &m_hdrImageView) != VK_SUCCESS)
         throw std::runtime_error("Failed to create HDR image view");
 
     // sampler for tonemapping pass to read from
@@ -293,7 +304,7 @@ void Renderer::createHDRResources() {
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_hdrSampler) != VK_SUCCESS)
+    if (vkCreateSampler(dev, &samplerInfo, nullptr, &m_hdrSampler) != VK_SUCCESS)
         throw std::runtime_error("Failed to create HDR sampler");
 
     // framebuffer — HDR color + existing depth
@@ -304,18 +315,19 @@ void Renderer::createHDRResources() {
     fbInfo.renderPass      = m_hdrRenderPass;
     fbInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
     fbInfo.pAttachments    = attachments.data();
-    fbInfo.width           = m_swapchainExtent.width;
-    fbInfo.height          = m_swapchainExtent.height;
+    fbInfo.width           = extent.width;
+    fbInfo.height          = extent.height;
     fbInfo.layers          = 1;
 
-    if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_hdrFramebuffer) != VK_SUCCESS)
+    if (vkCreateFramebuffer(dev, &fbInfo, nullptr, &m_hdrFramebuffer) != VK_SUCCESS)
         throw std::runtime_error("Failed to create HDR framebuffer");
 
     std::cout << "HDR resources created!" << std::endl;
 }
 
 void Renderer::destroyDepthResources() {
-    vkDestroyImageView(m_device, m_depthImageView, nullptr);
-    vkDestroyImage(m_device, m_depthImage, nullptr);
-    vkFreeMemory(m_device, m_depthImageMemory, nullptr);
+    VkDevice dev = device();
+    vkDestroyImageView(dev, m_depthImageView, nullptr);
+    vkDestroyImage(dev, m_depthImage, nullptr);
+    vkFreeMemory(dev, m_depthImageMemory, nullptr);
 }

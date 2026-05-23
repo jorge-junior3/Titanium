@@ -26,11 +26,12 @@ static VkShaderModule createShaderModule(VkDevice device, const std::vector<char
 }
 
 void Renderer::createGraphicsPipeline() {
+    VkDevice device = m_vulkanContext->getDevice();
     auto vertCode = readFile("shaders/triangle.vert.spv");
     auto fragCode = readFile("shaders/triangle.frag.spv");
 
-    VkShaderModule vertModule = createShaderModule(m_device, vertCode);
-    VkShaderModule fragModule = createShaderModule(m_device, fragCode);
+    VkShaderModule vertModule = createShaderModule(device, vertCode);
+    VkShaderModule fragModule = createShaderModule(device, fragCode);
 
     std::cout << "vertModule: " << vertModule << std::endl; std::cout << std::flush;
     std::cout << "fragModule: " << fragModule << std::endl; std::cout << std::flush;
@@ -68,14 +69,14 @@ void Renderer::createGraphicsPipeline() {
     VkViewport viewport{};
     viewport.x        = 0.0f;
     viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(m_swapchainExtent.width);
-    viewport.height   = static_cast<float>(m_swapchainExtent.height);
+    viewport.width    = static_cast<float>(m_vulkanContext->getSwapchainExtent().width);
+    viewport.height   = static_cast<float>(m_vulkanContext->getSwapchainExtent().height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = m_swapchainExtent;
+    scissor.extent = m_vulkanContext->getSwapchainExtent();
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -117,7 +118,7 @@ void Renderer::createGraphicsPipeline() {
     layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts    = &m_descriptorSetLayout;
-    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create pipeline layout");
 
     std::cout << "pipelineLayout: " << m_pipelineLayout << std::endl; std::cout << std::flush;
@@ -139,14 +140,14 @@ void Renderer::createGraphicsPipeline() {
     pipelineInfo.renderPass = m_hdrRenderPass; // ← was m_renderPass
     pipelineInfo.subpass             = 0;
 
-    VkResult result = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+    VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
                                                 &pipelineInfo, nullptr, &m_pipeline);
     std::cout << "vkCreateGraphicsPipelines result: " << result << std::endl; std::cout << std::flush;
     if (result != VK_SUCCESS)
         throw std::runtime_error("Failed to create graphics pipeline");
 
-    vkDestroyShaderModule(m_device, vertModule, nullptr);
-    vkDestroyShaderModule(m_device, fragModule, nullptr);
+    vkDestroyShaderModule(device, vertModule, nullptr);
+    vkDestroyShaderModule(device, fragModule, nullptr);
 
     std::cout << "Graphics pipeline created!" << std::endl;
 }

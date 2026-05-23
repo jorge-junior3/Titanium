@@ -1,34 +1,36 @@
 #include "Renderer.h"
-#include "MeshLoader.h"
 #include <iostream>
+#include <stdexcept>
 
 #ifndef ASSETS_PATH
 #define ASSETS_PATH "assets/"
 #endif
 
 // ============================================================
+// Memory type helper — delegates to VulkanContext
+// ============================================================
+
+uint32_t Renderer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags props) {
+    return m_vulkanContext->findMemoryType(typeFilter, props);
+}
+
+// ============================================================
 // Constructor / Destructor
 // ============================================================
 
-Renderer::Renderer(SDL_Window* window) : m_window(window) {
+Renderer::Renderer(SDL_Window* window) : m_vulkanContext(new VulkanContext(window)) {
     initVulkan();
     initRenderPasses();
     initResources();
     initPipelines();
-    initAssets();
     std::cout << "Renderer ready!" << std::endl;
 }
 
 Renderer::~Renderer() {
-    vkDeviceWaitIdle(m_device);
-    destroySync();
-    vkDeviceWaitIdle(m_device);
-    destroyAssets();
-    vkDeviceWaitIdle(m_device);
+    if (!m_vulkanContext) return;
+    vkDeviceWaitIdle(m_vulkanContext->getDevice());
     destroyPipelines();
-    vkDeviceWaitIdle(m_device);
     destroyResources();
-    vkDeviceWaitIdle(m_device);
     destroyVulkan();
 }
 
@@ -37,14 +39,7 @@ Renderer::~Renderer() {
 // ============================================================
 
 void Renderer::initVulkan() {
-    createInstance();
-    pickPhysicalDevice();
-    createLogicalDevice();
-    createSurface();
-    createSwapchain();
-    createCommandPool();
-    createCommandBuffers();
-    createSyncObjects();
+    m_vulkanContext->init();
 }
 
 void Renderer::initRenderPasses() {
@@ -73,46 +68,73 @@ void Renderer::initPipelines() {
     createTonemapPipeline();
 }
 
-void Renderer::initAssets() {
-    Mesh mesh = MeshLoader::load(std::string(ASSETS_PATH) + "cube.obj");
-    createVertexBuffer(mesh.vertices);
-    createIndexBuffer(mesh.indices);
-}
-
 // ============================================================
-// Destroy groups — mirror of init, reverse order
+// Public asset loading — called by Engine, not constructor
 // ============================================================
 
-void Renderer::destroySync() {
-    vkDestroySemaphore(m_device, m_imageAvailable, nullptr);
-    vkDestroySemaphore(m_device, m_renderFinished, nullptr);
-    vkDestroyFence(m_device, m_inFlight, nullptr);
-    vkDestroyCommandPool(m_device, m_commandPool, nullptr);
-}
-
-void Renderer::destroyAssets() {
+void Renderer::loadMesh(const std::vector<Vertex>& vertices,
+                        const std::vector<uint32_t>& indices) {
+    // destroy old buffers if reloading
     destroyBuffers();
-    destroyPBRTextures();
+    createVertexBuffer(vertices);
+    createIndexBuffer(indices);
 }
+
+// ============================================================
+// Destroy groups — strict reverse of init order
+// ============================================================
 
 void Renderer::destroyPipelines() {
-    destroyShadowResources();    // handles shadow pipeline
-    destroySkyboxResources();    // handles skybox pipeline + layout
-    destroyHDRResources();       // handles tonemap pipeline + layout
+    if (!m_vulkanContext) return;
+    destroyShadowResources();
+    destroySkyboxResources();
+    destroyHDRResources();
     destroyDescriptors();
+    VkDevice device = m_vulkanContext->getDevice();
+    if (m_pipeline       != VK_NULL_HANDLE) vkDestroyPipeline(device, m_pipeline, nullptr);
+    if (m_pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, m_pipelineLayout, nullptr);
+    m_pipeline       = VK_NULL_HANDLE;
+    m_pipelineLayout = VK_NULL_HANDLE;
 }
 
 void Renderer::destroyResources() {
+    if (!m_vulkanContext) return;
+    destroyBuffers();
+    destroyPBRTextures();
     destroyDepthResources();
+    VkDevice device = m_vulkanContext->getDevice();
     for (auto fb : m_framebuffers)
-        vkDestroyFramebuffer(m_device, fb, nullptr);
-    vkDestroyRenderPass(m_device, m_renderPass, nullptr);
-    vkDestroyPipeline(m_device, m_pipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
+        if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(device, fb, nullptr);
+    m_framebuffers.clear();
+    if (m_renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, m_renderPass, nullptr);
+    m_renderPass = VK_NULL_HANDLE;
 }
 
 void Renderer::destroyVulkan() {
-    destroySwapchain();
+    delete m_vulkanContext;
+    m_vulkanContext = nullptr;
+}
+
+// ============================================================
+// Swapchain recreation — call on resize or VK_ERROR_OUT_OF_DATE_KHR
+// ============================================================
+
+void Renderer::recreateSwapchain() {
+    vkDeviceWaitIdle(m_vulkanContext->getDevice());
+
+    // tear down swapchain-dependent resources
+    for (auto fb : m_framebuffers)
+        vkDestroyFramebuffer(m_vulkanContext->getDevice(), fb, nullptr);
+    m_framebuffers.clear();
+    destroyDepthResources();
+    vkDestroyRenderPass(m_vulkanContext->getDevice(), m_renderPass, nullptr);
+    m_renderPass = VK_NULL_HANDLE;
+
+    // rebuild
+    m_vulkanContext->recreateSwapchain();
+    createDepthResources();
+    createRenderPass();
+    createFramebuffers();
 }
 
 // ============================================================
@@ -120,31 +142,64 @@ void Renderer::destroyVulkan() {
 // ============================================================
 
 void Renderer::drawFrame() {
-    std::cout << "drawFrame start" << std::endl; std::cout << std::flush;
-    vkWaitForFences(m_device, 1, &m_inFlight, VK_TRUE, UINT64_MAX);
-    vkResetFences(m_device, 1, &m_inFlight);
+    VkDevice device   = m_vulkanContext->getDevice();
+    VkFence  inFlight = m_vulkanContext->getInFlightFence();
+
+    // wait for previous frame
+    vkWaitForFences(device, 1, &inFlight, VK_TRUE, UINT64_MAX);
+
+    // acquire next swapchain image
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
-                          m_imageAvailable, VK_NULL_HANDLE, &imageIndex);
-    std::cout << "imageIndex: " << imageIndex << std::endl; std::cout << std::flush;
-    VkCommandBuffer cmd = m_commandBuffers[imageIndex];
-    std::cout << "cmd: " << cmd << std::endl; std::cout << std::flush;
+    VkResult acquireResult = vkAcquireNextImageKHR(
+        device,
+        m_vulkanContext->getSwapchain(),
+        UINT64_MAX,
+        m_vulkanContext->getImageAvailableSemaphore(),
+        VK_NULL_HANDLE,
+        &imageIndex);
+
+    if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapchain();
+        return;
+    }
+    if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+        throw std::runtime_error("Failed to acquire swapchain image");
+
+    // only reset fence after we know we're submitting
+    vkResetFences(device, 1, &inFlight);
+
+    // record
+    const auto& cmdBuffers = m_vulkanContext->getCommandBuffers();
+    if (imageIndex >= cmdBuffers.size())
+        throw std::runtime_error("imageIndex out of range for command buffers");
+
+    VkCommandBuffer cmd = cmdBuffers[imageIndex];
     vkResetCommandBuffer(cmd, 0);
+
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    vkBeginCommandBuffer(cmd, &beginInfo);
-    std::cout << "before drawShadowPass" << std::endl; std::cout << std::flush;
+    if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
+        throw std::runtime_error("Failed to begin command buffer");
+
     drawShadowPass(cmd);
-    std::cout << "before drawHDRPass" << std::endl; std::cout << std::flush;
     drawHDRPass(cmd);
-    std::cout << "before drawTonemapPass" << std::endl; std::cout << std::flush;
     drawTonemapPass(cmd, imageIndex);
-    std::cout << "before vkEndCommandBuffer" << std::endl; std::cout << std::flush;
-    vkEndCommandBuffer(cmd);
-    std::cout << "before submitFrame" << std::endl; std::cout << std::flush;
-    submitFrame(cmd, imageIndex);
+
+    if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
+        throw std::runtime_error("Failed to end command buffer");
+
+    // submit and present
+    VkResult submitResult = submitFrame(cmd, imageIndex);
+
+    if (submitResult == VK_ERROR_OUT_OF_DATE_KHR ||
+        submitResult == VK_SUBOPTIMAL_KHR) {
+        recreateSwapchain();
+    } else if (submitResult != VK_SUCCESS) {
+        throw std::runtime_error("Failed to present swapchain image");
+    }
 }
 
 void Renderer::updateUniformBuffer(const UniformBufferObject& ubo) {
-    memcpy(m_uniformMapped, &ubo, sizeof(ubo));
+    if (m_uniformMapped)
+        memcpy(m_uniformMapped, &ubo, sizeof(ubo));
 }

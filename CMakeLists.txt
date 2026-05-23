@@ -117,7 +117,7 @@ add_executable(Titanium
   src/core/Window.cpp
   src/core/Camera.cpp
   src/renderer/Renderer.cpp
-  src/renderer/Instance.cpp
+  src/renderer/VulkanContext.cpp   # ← add this
   src/renderer/Buffers.cpp
   src/renderer/Commands.cpp
   src/renderer/Descriptors.cpp

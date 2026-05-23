@@ -27,6 +27,7 @@ static VkShaderModule createShaderModule(VkDevice device, const std::vector<char
 }
 
 void Renderer::createShadowResources() {
+    VkDevice dev = device();
     createShadowRenderPass();
 
     // create depth image for shadow map
@@ -44,11 +45,11 @@ void Renderer::createShadowResources() {
     imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_shadowImage) != VK_SUCCESS)
+    if (vkCreateImage(dev, &imageInfo, nullptr, &m_shadowImage) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow image");
 
     VkMemoryRequirements memReqs;
-    vkGetImageMemoryRequirements(m_device, m_shadowImage, &memReqs);
+    vkGetImageMemoryRequirements(dev, m_shadowImage, &memReqs);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -56,10 +57,10 @@ void Renderer::createShadowResources() {
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_shadowMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(dev, &allocInfo, nullptr, &m_shadowMemory) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate shadow memory");
 
-    vkBindImageMemory(m_device, m_shadowImage, m_shadowMemory, 0);
+    vkBindImageMemory(dev, m_shadowImage, m_shadowMemory, 0);
 
     // image view
     VkImageViewCreateInfo viewInfo{};
@@ -73,7 +74,7 @@ void Renderer::createShadowResources() {
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount     = 1;
 
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_shadowImageView) != VK_SUCCESS)
+    if (vkCreateImageView(dev, &viewInfo, nullptr, &m_shadowImageView) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow image view");
 
     // sampler — compare mode for sampler2DShadow in the shader
@@ -89,7 +90,7 @@ void Renderer::createShadowResources() {
     samplerInfo.compareOp               = VK_COMPARE_OP_LESS;
     samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-    if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_shadowSampler) != VK_SUCCESS)
+    if (vkCreateSampler(dev, &samplerInfo, nullptr, &m_shadowSampler) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow sampler");
 
     createShadowFramebuffer();
@@ -100,6 +101,7 @@ void Renderer::createShadowResources() {
 }
 
 void Renderer::createShadowRenderPass() {
+    VkDevice dev = device();
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format         = VK_FORMAT_D32_SFLOAT;
     depthAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
@@ -147,11 +149,12 @@ void Renderer::createShadowRenderPass() {
     rpInfo.dependencyCount = static_cast<uint32_t>(deps.size());
     rpInfo.pDependencies   = deps.data();
 
-    if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_shadowRenderPass) != VK_SUCCESS)
+    if (vkCreateRenderPass(dev, &rpInfo, nullptr, &m_shadowRenderPass) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow render pass");
 }
 
 void Renderer::createShadowFramebuffer() {
+    VkDevice dev = device();
     VkFramebufferCreateInfo fbInfo{};
     fbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fbInfo.renderPass      = m_shadowRenderPass;
@@ -161,11 +164,12 @@ void Renderer::createShadowFramebuffer() {
     fbInfo.height          = SHADOW_MAP_SIZE;
     fbInfo.layers          = 1;
 
-    if (vkCreateFramebuffer(m_device, &fbInfo, nullptr, &m_shadowFramebuffer) != VK_SUCCESS)
+    if (vkCreateFramebuffer(dev, &fbInfo, nullptr, &m_shadowFramebuffer) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow framebuffer");
 }
 
 void Renderer::createShadowDescriptors() {
+    VkDevice dev = device();
     // descriptor set layout — just one UBO for the light space matrix
     VkDescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding        = 0;
@@ -178,7 +182,7 @@ void Renderer::createShadowDescriptors() {
     layoutInfo.bindingCount = 1;
     layoutInfo.pBindings    = &uboBinding;
 
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr,
+    if (vkCreateDescriptorSetLayout(dev, &layoutInfo, nullptr,
             &m_shadowDescriptorSetLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow descriptor set layout");
 
@@ -193,7 +197,7 @@ void Renderer::createShadowDescriptors() {
     poolInfo.pPoolSizes    = &poolSize;
     poolInfo.maxSets       = 1;
 
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_shadowDescriptorPool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(dev, &poolInfo, nullptr, &m_shadowDescriptorPool) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow descriptor pool");
 
     // uniform buffer for light space matrix
@@ -205,11 +209,11 @@ void Renderer::createShadowDescriptors() {
     bufInfo.usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(m_device, &bufInfo, nullptr, &m_shadowUniformBuffer) != VK_SUCCESS)
+    if (vkCreateBuffer(dev, &bufInfo, nullptr, &m_shadowUniformBuffer) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow uniform buffer");
 
     VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(m_device, m_shadowUniformBuffer, &memReqs);
+    vkGetBufferMemoryRequirements(dev, m_shadowUniformBuffer, &memReqs);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -217,11 +221,11 @@ void Renderer::createShadowDescriptors() {
     allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_shadowUniformMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(dev, &allocInfo, nullptr, &m_shadowUniformMemory) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate shadow uniform memory");
 
-    vkBindBufferMemory(m_device, m_shadowUniformBuffer, m_shadowUniformMemory, 0);
-    vkMapMemory(m_device, m_shadowUniformMemory, 0, bufSize, 0, &m_shadowUniformMapped);
+    vkBindBufferMemory(dev, m_shadowUniformBuffer, m_shadowUniformMemory, 0);
+    vkMapMemory(dev, m_shadowUniformMemory, 0, bufSize, 0, &m_shadowUniformMapped);
 
     // allocate descriptor set
     VkDescriptorSetAllocateInfo dsAllocInfo{};
@@ -230,7 +234,7 @@ void Renderer::createShadowDescriptors() {
     dsAllocInfo.descriptorSetCount = 1;
     dsAllocInfo.pSetLayouts        = &m_shadowDescriptorSetLayout;
 
-    if (vkAllocateDescriptorSets(m_device, &dsAllocInfo, &m_shadowDescriptorSet) != VK_SUCCESS)
+    if (vkAllocateDescriptorSets(dev, &dsAllocInfo, &m_shadowDescriptorSet) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate shadow descriptor set");
 
     VkDescriptorBufferInfo bufferInfo{};
@@ -246,12 +250,13 @@ void Renderer::createShadowDescriptors() {
     write.descriptorCount = 1;
     write.pBufferInfo     = &bufferInfo;
 
-    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+    vkUpdateDescriptorSets(dev, 1, &write, 0, nullptr);
 }
 
 void Renderer::createShadowPipeline() {
+    VkDevice dev = device();
     auto vertCode   = readFile("shaders/shadow.vert.spv");
-    auto vertModule = createShaderModule(m_device, vertCode);
+    auto vertModule = createShaderModule(dev, vertCode);
 
     VkPipelineShaderStageCreateInfo vertStage{};
     vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -322,7 +327,7 @@ void Renderer::createShadowPipeline() {
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts    = &m_shadowDescriptorSetLayout;
 
-    if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_shadowPipelineLayout) != VK_SUCCESS)
+    if (vkCreatePipelineLayout(dev, &layoutInfo, nullptr, &m_shadowPipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow pipeline layout");
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -340,11 +345,11 @@ void Renderer::createShadowPipeline() {
     pipelineInfo.renderPass          = m_shadowRenderPass;
     pipelineInfo.subpass             = 0;
 
-    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1,
+    if (vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1,
             &pipelineInfo, nullptr, &m_shadowPipeline) != VK_SUCCESS)
         throw std::runtime_error("Failed to create shadow pipeline");
 
-    vkDestroyShaderModule(m_device, vertModule, nullptr);
+    vkDestroyShaderModule(dev, vertModule, nullptr);
 
     std::cout << "Shadow pipeline created!" << std::endl;
 }
@@ -394,16 +399,17 @@ void Renderer::drawShadowPass(VkCommandBuffer cmd) {
 }
 
 void Renderer::destroyShadowResources() {
-    vkDestroyPipeline(m_device, m_shadowPipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_shadowPipelineLayout, nullptr);
-    vkDestroyRenderPass(m_device, m_shadowRenderPass, nullptr);
-    vkDestroyFramebuffer(m_device, m_shadowFramebuffer, nullptr);
-    vkDestroyImageView(m_device, m_shadowImageView, nullptr);
-    vkDestroyImage(m_device, m_shadowImage, nullptr);
-    vkFreeMemory(m_device, m_shadowMemory, nullptr);
-    vkDestroySampler(m_device, m_shadowSampler, nullptr);
-    vkDestroyBuffer(m_device, m_shadowUniformBuffer, nullptr);
-    vkFreeMemory(m_device, m_shadowUniformMemory, nullptr);
-    vkDestroyDescriptorPool(m_device, m_shadowDescriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_shadowDescriptorSetLayout, nullptr);
+    VkDevice dev = device();
+    vkDestroyPipeline(dev, m_shadowPipeline, nullptr);
+    vkDestroyPipelineLayout(dev, m_shadowPipelineLayout, nullptr);
+    vkDestroyRenderPass(dev, m_shadowRenderPass, nullptr);
+    vkDestroyFramebuffer(dev, m_shadowFramebuffer, nullptr);
+    vkDestroyImageView(dev, m_shadowImageView, nullptr);
+    vkDestroyImage(dev, m_shadowImage, nullptr);
+    vkFreeMemory(dev, m_shadowMemory, nullptr);
+    vkDestroySampler(dev, m_shadowSampler, nullptr);
+    vkDestroyBuffer(dev, m_shadowUniformBuffer, nullptr);
+    vkFreeMemory(dev, m_shadowUniformMemory, nullptr);
+    vkDestroyDescriptorPool(dev, m_shadowDescriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(dev, m_shadowDescriptorSetLayout, nullptr);
 }

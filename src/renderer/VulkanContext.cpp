@@ -1,8 +1,41 @@
-#include "Renderer.h"
+#include "VulkanContext.h"
 #include <stdexcept>
 #include <iostream>
 
-void Renderer::createInstance() {
+VulkanContext::VulkanContext(SDL_Window* window) : m_window(window) {}
+
+VulkanContext::~VulkanContext() {
+    cleanup();
+}
+
+void VulkanContext::init() {
+    createInstance();
+    pickPhysicalDevice();
+    createLogicalDevice();
+    createSurface();
+    createSwapchain();
+    createCommandPool();
+    createCommandBuffers();
+    createSyncObjects();
+}
+
+void VulkanContext::cleanup() {
+    vkDeviceWaitIdle(m_device);
+
+    destroySwapchain();
+
+    if (m_device != VK_NULL_HANDLE) {
+        vkDestroyDevice(m_device, nullptr);
+        m_device = VK_NULL_HANDLE;
+    }
+
+    if (m_instance != VK_NULL_HANDLE) {
+        vkDestroyInstance(m_instance, nullptr);
+        m_instance = VK_NULL_HANDLE;
+    }
+}
+
+void VulkanContext::createInstance() {
     VkApplicationInfo appInfo{};
     appInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName   = "MyEngine";
@@ -32,7 +65,7 @@ void Renderer::createInstance() {
         throw std::runtime_error("Failed to create Vulkan instance");
 }
 
-void Renderer::pickPhysicalDevice() {
+void VulkanContext::pickPhysicalDevice() {
     uint32_t count = 0;
     vkEnumeratePhysicalDevices(m_instance, &count, nullptr);
     if (count == 0)
@@ -49,7 +82,7 @@ void Renderer::pickPhysicalDevice() {
     std::cout << "GPU: " << props.deviceName << std::endl;
 }
 
-void Renderer::createLogicalDevice() {
+void VulkanContext::createLogicalDevice() {
     // find a queue family that supports graphics
     uint32_t count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(m_physicalDevice, &count, nullptr);
@@ -90,13 +123,13 @@ void Renderer::createLogicalDevice() {
     std::cout << "Logical device created!" << std::endl;
 }
 
-void Renderer::createSurface() {
+void VulkanContext::createSurface() {
     if (!SDL_Vulkan_CreateSurface(m_window, m_instance, &m_surface))
         throw std::runtime_error("Failed to create window surface");
     std::cout << "Surface created!" << std::endl;
 }
 
-void Renderer::createSwapchain() {
+void VulkanContext::createSwapchain() {
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &caps);
 
@@ -171,7 +204,7 @@ void Renderer::createSwapchain() {
     std::cout << "Swapchain created! Images: " << m_swapchainImages.size() << std::endl;
 }
 
-void Renderer::createCommandPool() {
+void VulkanContext::createCommandPool() {
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.queueFamilyIndex = m_graphicsFamily;
@@ -183,8 +216,8 @@ void Renderer::createCommandPool() {
     std::cout << "Command pool created!" << std::endl;
 }
 
-void Renderer::createCommandBuffers() {
-    m_commandBuffers.resize(m_swapchainImages.size()); // ← was m_framebuffers.size()
+void VulkanContext::createCommandBuffers() {
+    m_commandBuffers.resize(m_swapchainImages.size());
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool        = m_commandPool;
@@ -195,7 +228,7 @@ void Renderer::createCommandBuffers() {
     std::cout << "Command buffers allocated: " << m_commandBuffers.size() << std::endl;
 }
 
-void Renderer::createSyncObjects() {
+void VulkanContext::createSyncObjects() {
     VkSemaphoreCreateInfo semInfo{};
     semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -211,28 +244,75 @@ void Renderer::createSyncObjects() {
     std::cout << "Sync objects created!" << std::endl;
 }
 
-void Renderer::destroySwapchain() {
+void VulkanContext::destroySwapchain() {
     for (auto view : m_swapchainImageViews)
         vkDestroyImageView(m_device, view, nullptr);
     m_swapchainImageViews.clear();
-    
+
     if (m_swapchain != VK_NULL_HANDLE) {
         vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
         m_swapchain = VK_NULL_HANDLE;
     }
-    
+
     if (m_surface != VK_NULL_HANDLE && m_instance != VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
         m_surface = VK_NULL_HANDLE;
     }
-    
-    if (m_device != VK_NULL_HANDLE) {
-        vkDestroyDevice(m_device, nullptr);
-        m_device = VK_NULL_HANDLE;
+
+    if (m_commandPool != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+        m_commandPool = VK_NULL_HANDLE;
     }
-    
-    if (m_instance != VK_NULL_HANDLE) {
-        vkDestroyInstance(m_instance, nullptr);
-        m_instance = VK_NULL_HANDLE;
+
+    if (m_imageAvailable != VK_NULL_HANDLE) {
+        vkDestroySemaphore(m_device, m_imageAvailable, nullptr);
+        m_imageAvailable = VK_NULL_HANDLE;
     }
+    if (m_renderFinished != VK_NULL_HANDLE) {
+        vkDestroySemaphore(m_device, m_renderFinished, nullptr);
+        m_renderFinished = VK_NULL_HANDLE;
+    }
+    if (m_inFlight != VK_NULL_HANDLE) {
+        vkDestroyFence(m_device, m_inFlight, nullptr);
+        m_inFlight = VK_NULL_HANDLE;
+    }
+}
+
+VkCommandBuffer VulkanContext::beginSingleTimeCommands() {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool        = m_commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer cmd;
+    vkAllocateCommandBuffers(m_device, &allocInfo, &cmd);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &beginInfo);
+    return cmd;
+}
+
+void VulkanContext::endSingleTimeCommands(VkCommandBuffer cmd) {
+    vkEndCommandBuffer(cmd);
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers    = &cmd;
+    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(m_graphicsQueue);
+    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmd);
+}
+
+uint32_t VulkanContext::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProps);
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) &&
+            (memProps.memoryTypes[i].propertyFlags & properties) == properties)
+            return i;
+    }
+    throw std::runtime_error("Failed to find suitable memory type");
 }

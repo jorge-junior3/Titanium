@@ -4,14 +4,16 @@
 
 
 VkCommandBuffer Renderer::beginSingleTimeCommands() {
+    VkCommandPool commandPool = m_vulkanContext->getCommandPool();
+    VkDevice device = m_vulkanContext->getDevice();
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool        = m_commandPool;
+    allocInfo.commandPool        = commandPool;
     allocInfo.commandBufferCount = 1;
 
     VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(m_device, &allocInfo, &cmd);
+    vkAllocateCommandBuffers(device, &allocInfo, &cmd);
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -21,14 +23,17 @@ VkCommandBuffer Renderer::beginSingleTimeCommands() {
 }
 
 void Renderer::endSingleTimeCommands(VkCommandBuffer cmd) {
+    VkDevice device = m_vulkanContext->getDevice();
+    VkCommandPool commandPool = m_vulkanContext->getCommandPool();
+    VkQueue graphicsQueue = m_vulkanContext->getGraphicsQueue();
     vkEndCommandBuffer(cmd);
     VkSubmitInfo submitInfo{};
     submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers    = &cmd;
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(m_graphicsQueue);
-    vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmd);
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+    vkFreeCommandBuffers(device, commandPool, 1, &cmd);
 }
 
 void Renderer::copyBufferToImage(VkBuffer buffer, VkImage image,
@@ -96,25 +101,31 @@ void Renderer::transitionImageLayout(VkImage image, VkFormat format,
 void Renderer::submitFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
+    VkSemaphore imageAvailable = m_vulkanContext->getImageAvailableSemaphore();
+    VkSemaphore renderFinished = m_vulkanContext->getRenderFinishedSemaphore();
+    VkFence inFlight = m_vulkanContext->getInFlightFence();
+    VkQueue graphicsQueue = m_vulkanContext->getGraphicsQueue();
+    VkSwapchainKHR swapchain = m_vulkanContext->getSwapchain();
+
     VkSubmitInfo submitInfo{};
     submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.waitSemaphoreCount   = 1;
-    submitInfo.pWaitSemaphores      = &m_imageAvailable;
+    submitInfo.pWaitSemaphores      = &imageAvailable;
     submitInfo.pWaitDstStageMask    = &waitStage;
     submitInfo.commandBufferCount   = 1;
     submitInfo.pCommandBuffers      = &cmd;
     submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores    = &m_renderFinished;
+    submitInfo.pSignalSemaphores    = &renderFinished;
 
-    vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_inFlight);
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlight);
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores    = &m_renderFinished;
+    presentInfo.pWaitSemaphores    = &renderFinished;
     presentInfo.swapchainCount     = 1;
-    presentInfo.pSwapchains        = &m_swapchain;
+    presentInfo.pSwapchains        = &swapchain;
     presentInfo.pImageIndices      = &imageIndex;
 
-    vkQueuePresentKHR(m_graphicsQueue, &presentInfo);
+    vkQueuePresentKHR(graphicsQueue, &presentInfo);
 }

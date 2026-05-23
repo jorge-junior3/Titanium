@@ -3,6 +3,7 @@
 #include <iostream>
 
 void Renderer::createDescriptorSetLayout() {
+    VkDevice device = m_vulkanContext->getDevice();
     VkDescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding         = 0;
     uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -32,11 +33,12 @@ void Renderer::createDescriptorSetLayout() {
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings    = bindings.data();
 
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS)
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create descriptor set layout");
 }
 
 void Renderer::createDescriptorPool() {
+    VkDevice device = m_vulkanContext->getDevice();
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
@@ -48,11 +50,12 @@ void Renderer::createDescriptorPool() {
     poolInfo.pPoolSizes    = poolSizes.data();
     poolInfo.maxSets       = 1;
 
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS)
         throw std::runtime_error("Failed to create descriptor pool");
 }
 
 void Renderer::createDescriptorSet() {
+    VkDevice device = m_vulkanContext->getDevice();
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool     = m_descriptorPool;
@@ -60,7 +63,7 @@ void Renderer::createDescriptorSet() {
     allocInfo.pSetLayouts        = &m_descriptorSetLayout;
     
 
-    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_descriptorSet) != VK_SUCCESS)
+    if (vkAllocateDescriptorSets(device, &allocInfo, &m_descriptorSet) != VK_SUCCESS)
         throw std::runtime_error("Failed to allocate descriptor set");
 
     VkDescriptorBufferInfo bufferInfo{};
@@ -111,11 +114,12 @@ void Renderer::createDescriptorSet() {
     writes[4] = makeSamplerWrite(4, metallicInfo);
     writes[5] = makeSamplerWrite(5, shadowInfo);
 
-    vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     
 }
 
 void Renderer::destroyDescriptors() {
-    vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
+    VkDevice device = m_vulkanContext->getDevice();
+    vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
 }
