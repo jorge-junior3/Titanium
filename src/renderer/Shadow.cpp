@@ -369,6 +369,10 @@ glm::mat4 Renderer::getLightSpaceMatrix() {
 }
 
 void Renderer::drawShadowPass(VkCommandBuffer cmd) {
+    if (m_indexCount == 0 || m_vertexBuffer == VK_NULL_HANDLE || m_indexBuffer == VK_NULL_HANDLE) {
+        return;
+    }
+
     // update shadow UBO
     ShadowUBO shadowUBO{};
     shadowUBO.lightSpaceMatrix = getLightSpaceMatrix();

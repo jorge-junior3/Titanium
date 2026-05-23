@@ -99,7 +99,8 @@ void Renderer::createUniformBuffer() {
         throw std::runtime_error("Failed to allocate uniform buffer memory");
 
     vkBindBufferMemory(device, m_uniformBuffer, m_uniformBufferMemory, 0);
-    vkMapMemory(device, m_uniformBufferMemory, 0, size, 0, &m_uniformMapped);
+    if (vkMapMemory(device, m_uniformBufferMemory, 0, size, 0, &m_uniformMapped) != VK_SUCCESS)
+        throw std::runtime_error("Failed to map uniform buffer memory");
 }
 
 void Renderer::destroyBuffers() {

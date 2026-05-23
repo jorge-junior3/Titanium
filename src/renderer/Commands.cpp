@@ -98,7 +98,7 @@ void Renderer::transitionImageLayout(VkImage image, VkFormat format,
     endSingleTimeCommands(cmd);
 }
 
-void Renderer::submitFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
+VkResult Renderer::submitFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
     VkSemaphore imageAvailable = m_vulkanContext->getImageAvailableSemaphore();
@@ -117,7 +117,9 @@ void Renderer::submitFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores    = &renderFinished;
 
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlight);
+    VkResult submitResult = vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlight);
+    if (submitResult != VK_SUCCESS)
+        return submitResult;
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -127,5 +129,5 @@ void Renderer::submitFrame(VkCommandBuffer cmd, uint32_t imageIndex) {
     presentInfo.pSwapchains        = &swapchain;
     presentInfo.pImageIndices      = &imageIndex;
 
-    vkQueuePresentKHR(graphicsQueue, &presentInfo);
+    return vkQueuePresentKHR(graphicsQueue, &presentInfo);
 }

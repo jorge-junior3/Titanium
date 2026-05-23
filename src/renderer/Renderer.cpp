@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "MeshLoader.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -10,7 +11,7 @@
 // Memory type helper — delegates to VulkanContext
 // ============================================================
 
-uint32_t Renderer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags props) {
+uint32_t Renderer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags props) const {
     return m_vulkanContext->findMemoryType(typeFilter, props);
 }
 
@@ -22,6 +23,12 @@ Renderer::Renderer(SDL_Window* window) : m_vulkanContext(new VulkanContext(windo
     initVulkan();
     initRenderPasses();
     initResources();
+
+    Mesh cubeMesh = MeshLoader::load(std::string(ASSETS_PATH) + "cube.obj");
+    loadMesh(cubeMesh.vertices, cubeMesh.indices);
+    std::cout << "Loaded default cube mesh: " << cubeMesh.vertices.size()
+              << " vertices, " << cubeMesh.indices.size() << " indices" << std::endl;
+
     initPipelines();
     std::cout << "Renderer ready!" << std::endl;
 }
@@ -74,8 +81,20 @@ void Renderer::initPipelines() {
 
 void Renderer::loadMesh(const std::vector<Vertex>& vertices,
                         const std::vector<uint32_t>& indices) {
-    // destroy old buffers if reloading
-    destroyBuffers();
+    // destroy old mesh buffers if reloading, but keep the uniform buffer alive
+    VkDevice device = m_vulkanContext->getDevice();
+    if (m_indexBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, m_indexBuffer, nullptr);
+        vkFreeMemory(device, m_indexBufferMemory, nullptr);
+        m_indexBuffer = VK_NULL_HANDLE;
+        m_indexBufferMemory = VK_NULL_HANDLE;
+    }
+    if (m_vertexBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, m_vertexBuffer, nullptr);
+        vkFreeMemory(device, m_vertexBufferMemory, nullptr);
+        m_vertexBuffer = VK_NULL_HANDLE;
+        m_vertexBufferMemory = VK_NULL_HANDLE;
+    }
     createVertexBuffer(vertices);
     createIndexBuffer(indices);
 }
@@ -200,6 +219,7 @@ void Renderer::drawFrame() {
 }
 
 void Renderer::updateUniformBuffer(const UniformBufferObject& ubo) {
-    if (m_uniformMapped)
-        memcpy(m_uniformMapped, &ubo, sizeof(ubo));
+    if (!m_uniformMapped)
+        throw std::runtime_error("Uniform buffer memory is not mapped");
+    memcpy(m_uniformMapped, &ubo, sizeof(ubo));
 }

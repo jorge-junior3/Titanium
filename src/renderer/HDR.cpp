@@ -313,14 +313,16 @@ void Renderer::drawHDRPass(VkCommandBuffer cmd) {
     rpInfo.pClearValues      = clearValues.data();
 
     vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_pipelineLayout, 0, 1, &m_descriptorSet, 0, nullptr);
-        VkBuffer     vertexBuffers[] = {m_vertexBuffer};
-        VkDeviceSize offsets[]       = {0};
-        vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+        if (m_indexCount > 0 && m_vertexBuffer != VK_NULL_HANDLE && m_indexBuffer != VK_NULL_HANDLE) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                m_pipelineLayout, 0, 1, &m_descriptorSet, 0, nullptr);
+            VkBuffer     vertexBuffers[] = {m_vertexBuffer};
+            VkDeviceSize offsets[]       = {0};
+            vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+        }
         drawSkybox(cmd);
     vkCmdEndRenderPass(cmd);
 

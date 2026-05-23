@@ -244,7 +244,7 @@ void VulkanContext::createSyncObjects() {
     std::cout << "Sync objects created!" << std::endl;
 }
 
-void VulkanContext::destroySwapchain() {
+void VulkanContext::destroySwapchainResources() {
     for (auto view : m_swapchainImageViews)
         vkDestroyImageView(m_device, view, nullptr);
     m_swapchainImageViews.clear();
@@ -253,6 +253,19 @@ void VulkanContext::destroySwapchain() {
         vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
         m_swapchain = VK_NULL_HANDLE;
     }
+
+    m_swapchainImages.clear();
+
+    if (!m_commandBuffers.empty()) {
+        vkFreeCommandBuffers(m_device, m_commandPool,
+                             static_cast<uint32_t>(m_commandBuffers.size()),
+                             m_commandBuffers.data());
+        m_commandBuffers.clear();
+    }
+}
+
+void VulkanContext::destroySwapchain() {
+    destroySwapchainResources();
 
     if (m_surface != VK_NULL_HANDLE && m_instance != VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
@@ -276,6 +289,13 @@ void VulkanContext::destroySwapchain() {
         vkDestroyFence(m_device, m_inFlight, nullptr);
         m_inFlight = VK_NULL_HANDLE;
     }
+}
+
+void VulkanContext::recreateSwapchain() {
+    vkDeviceWaitIdle(m_device);
+    destroySwapchainResources();
+    createSwapchain();
+    createCommandBuffers();
 }
 
 VkCommandBuffer VulkanContext::beginSingleTimeCommands() {

@@ -36,6 +36,9 @@ public:
     ~Renderer();
 
     void drawFrame();
+    void loadMesh(const std::vector<Vertex>& vertices,
+                  const std::vector<uint32_t>& indices);
+    void recreateSwapchain();
     void updateUniformBuffer(const UniformBufferObject& ubo);
 
 private:
@@ -62,7 +65,7 @@ private:
     // Frame
     // --------------------------------------------------------
     void drawHDRPass(VkCommandBuffer cmd);
-    void submitFrame(VkCommandBuffer cmd, uint32_t imageIndex);
+    VkResult submitFrame(VkCommandBuffer cmd, uint32_t imageIndex);
 
     VulkanContext* m_vulkanContext;
 
@@ -72,7 +75,7 @@ private:
     VkFormat swapchainFormat() const { return m_vulkanContext->getSwapchainFormat(); }
     VkExtent2D swapchainExtent() const { return m_vulkanContext->getSwapchainExtent(); }
     const std::vector<VkImageView>& swapchainImageViews() const { return m_vulkanContext->getSwapchainImageViews(); }
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const { return m_vulkanContext->findMemoryType(typeFilter, properties); }
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
 
     std::vector<VkFramebuffer> m_framebuffers;
 

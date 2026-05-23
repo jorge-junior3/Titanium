@@ -2,6 +2,7 @@
 #include "../renderer/Renderer.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL2/SDL.h>
+#include <iostream>
 
 Engine::Engine() {
     m_window   = std::make_unique<Window>("MyEngine", 1280, 720);

@@ -35,6 +35,9 @@ public:
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer cmd);
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    void recreateSwapchain();
+
+    void destroySwapchainResources();
 
 private:
     void createInstance();
