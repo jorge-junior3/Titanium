@@ -9,6 +9,16 @@ layout(binding = 6) uniform samplerCube irradianceMap;
 layout(binding = 7) uniform samplerCube prefilteredMap;
 layout(binding = 8) uniform sampler2D   brdfLUT;
 
+layout(binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+    vec4 camPos;
+    mat4 lightSpaceMatrix;
+    vec4 lightDir;
+    vec4 lightColor;
+} ubo;
+
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec2 fragUV;
@@ -117,14 +127,10 @@ void main() {
 
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
-    // direct light
-    vec3  lightPos  = vec3(4.0, 6.0, 4.0);
-    vec3  lightColor = vec3(300.0, 280.0, 260.0);
-    vec3  L          = normalize(lightPos - fragPos);
-    vec3  H          = normalize(V + L);
-    float dist       = length(lightPos - fragPos);
-    float atten      = 1.0 / (dist * dist);
-    vec3  radiance   = lightColor * atten;
+    // directional light based on shared light direction and radiance
+    vec3  L        = normalize(ubo.lightDir.xyz);
+    vec3  H        = normalize(V + L);
+    vec3  radiance = ubo.lightColor.rgb;
 
     float NDF = D_GGX(N, H, roughness);
     float G   = G_Smith(N, V, L, roughness);

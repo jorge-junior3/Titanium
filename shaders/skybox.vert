@@ -6,6 +6,8 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 proj;
     vec4 camPos;
     mat4 lightSpaceMatrix;
+    vec4 lightDir;
+    vec4 lightColor;
 } ubo;
 
 layout(location = 0) out vec3 fragTexCoord;

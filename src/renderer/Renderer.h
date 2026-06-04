@@ -22,6 +22,8 @@ struct UniformBufferObject {
     glm::mat4 proj;
     glm::vec4 camPos;
     glm::mat4 lightSpaceMatrix;
+    glm::vec4 lightDir;
+    glm::vec4 lightColor;
 };
 
 struct ShadowUBO {

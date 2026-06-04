@@ -34,6 +34,9 @@ void Engine::run() {
         ubo.proj   = m_camera->getProjection();
         ubo.camPos = glm::vec4(m_camera->getPosition(), 1.0f);  // ← must be inside this block
         ubo.lightSpaceMatrix = m_renderer->getLightSpaceMatrix();
+        // directional light incoming from above and angled towards +X,+Z
+        ubo.lightDir = glm::vec4(glm::normalize(glm::vec3(0.3f, -1.0f, 0.2f)), 0.0f);
+        ubo.lightColor = glm::vec4(12.0f, 11.2f, 10.4f, 0.0f);
 
         m_renderer->updateUniformBuffer(ubo);
         m_renderer->drawFrame();
