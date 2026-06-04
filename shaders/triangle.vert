@@ -28,14 +28,15 @@ void main() {
     vec4 worldPos     = ubo.model * vec4(inPosition, 1.0);
     gl_Position       = ubo.proj * ubo.view * worldPos;
     fragPos           = worldPos.xyz;
-    fragNormal        = mat3(transpose(inverse(ubo.model))) * inNormal;
     fragUV            = inUV;
     camPos            = ubo.camPos.xyz;
     fragPosLightSpace = ubo.lightSpaceMatrix * worldPos;
 
-    vec3 T = normalize(mat3(ubo.model) * inTangent);
-    vec3 B = normalize(mat3(ubo.model) * inBitangent);
-    vec3 N = normalize(mat3(ubo.model) * inNormal);
+    mat3 normalMat = mat3(transpose(inverse(ubo.model)));
+    vec3 T = normalize(normalMat * inTangent);
+    vec3 B = normalize(normalMat * inBitangent);
+    vec3 N = normalize(normalMat * inNormal);
+    fragNormal = N;
     TBN0 = T;
     TBN1 = B;
     TBN2 = N;

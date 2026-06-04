@@ -1,3 +1,5 @@
+// Renderer.h
+
 #pragma once
 #include <vulkan/vulkan.hpp>
 #include <SDL2/SDL.h>
@@ -40,6 +42,7 @@ public:
                   const std::vector<uint32_t>& indices);
     void recreateSwapchain();
     void updateUniformBuffer(const UniformBufferObject& ubo);
+    glm::mat4 getLightSpaceMatrix() const;
 
 private:
 
@@ -198,7 +201,6 @@ private:
     void createShadowPipeline();
     void drawShadowPass(VkCommandBuffer cmd);
     void destroyShadowResources();
-    glm::mat4 getLightSpaceMatrix();
 
     static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
 
@@ -270,4 +272,35 @@ private:
     VkDescriptorSet       m_tonemapDescriptorSet       = VK_NULL_HANDLE;
 
     float m_exposure = 1.0f;
+
+    // --------------------------------------------------------
+    // IBL
+    // --------------------------------------------------------
+    void createIBL();
+    void createIrradianceMap();
+    void createPrefilteredMap();
+    void createBRDFLut();
+    void destroyIBL();
+
+    static constexpr uint32_t IBL_PREFILTER_MIPS = 5;
+
+    VkImage        m_irradianceImage        = VK_NULL_HANDLE;
+    VkDeviceMemory m_irradianceMemory       = VK_NULL_HANDLE;
+    VkImageView    m_irradianceImageView    = VK_NULL_HANDLE;
+    VkImageView    m_irradianceStorageView  = VK_NULL_HANDLE;
+    VkSampler      m_irradianceSampler      = VK_NULL_HANDLE;
+
+    VkImage        m_prefilteredImage       = VK_NULL_HANDLE;
+    VkDeviceMemory m_prefilteredMemory      = VK_NULL_HANDLE;
+    VkImageView    m_prefilteredImageView   = VK_NULL_HANDLE;
+    VkSampler      m_prefilteredSampler     = VK_NULL_HANDLE;
+
+    VkImage        m_brdfLutImage           = VK_NULL_HANDLE;
+    VkDeviceMemory m_brdfLutMemory          = VK_NULL_HANDLE;
+    VkImageView    m_brdfLutImageView       = VK_NULL_HANDLE;
+    VkSampler      m_brdfLutSampler         = VK_NULL_HANDLE;
+
+    VkDescriptorSetLayout m_iblComputeDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool      m_iblComputeDescriptorPool      = VK_NULL_HANDLE;
+    VkDescriptorSet       m_irradianceDescriptorSet       = VK_NULL_HANDLE;
 };

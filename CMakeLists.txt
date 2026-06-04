@@ -128,6 +128,7 @@ add_executable(Titanium
   src/renderer/Skybox.cpp
   src/renderer/Textures.cpp
   src/renderer/MeshLoader.cpp
+  src/renderer/IBL.cpp
 )
 
 # ============================================================

@@ -1,3 +1,5 @@
+// Descriptors.cpp
+
 #include "Renderer.h"
 #include <stdexcept>
 #include <iostream>
@@ -19,13 +21,16 @@ void Renderer::createDescriptorSetLayout() {
         return b;
     };
 
-    std::array<VkDescriptorSetLayoutBinding, 6> bindings = {
+    std::array<VkDescriptorSetLayoutBinding, 9> bindings = {
         uboBinding,
         makeSamplerBinding(1), // albedo
         makeSamplerBinding(2), // normal
         makeSamplerBinding(3), // roughness
         makeSamplerBinding(4), // metallic
-        makeSamplerBinding(5), // shadow map ← new
+        makeSamplerBinding(5), // shadow map
+        makeSamplerBinding(6), // irradiance
+        makeSamplerBinding(7), // prefiltered env
+        makeSamplerBinding(8), // BRDF LUT
     };
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
@@ -43,7 +48,7 @@ void Renderer::createDescriptorPool() {
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = 5;  // was 4, now 4 PBR + 1 shadow
+    poolSizes[1].descriptorCount = 8;  // 4 PBR + 1 shadow + 3 IBL textures
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
@@ -84,11 +89,11 @@ void Renderer::createDescriptorSet() {
     VkDescriptorImageInfo roughInfo     = makeImageInfo(m_roughnessImageView);
     VkDescriptorImageInfo metallicInfo  = makeImageInfo(m_metallicImageView);
     VkDescriptorImageInfo shadowInfo{};
-    shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    shadowInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
     shadowInfo.imageView   = m_shadowImageView;
     shadowInfo.sampler     = m_shadowSampler;
 
-    std::array<VkWriteDescriptorSet, 6> writes{};
+    std::array<VkWriteDescriptorSet, 9> writes{};
 
     writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet          = m_descriptorSet;
@@ -114,8 +119,26 @@ void Renderer::createDescriptorSet() {
     writes[4] = makeSamplerWrite(4, metallicInfo);
     writes[5] = makeSamplerWrite(5, shadowInfo);
 
+    VkDescriptorImageInfo irradianceInfo{};
+    irradianceInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    irradianceInfo.imageView   = m_irradianceImageView;
+    irradianceInfo.sampler     = m_irradianceSampler;
+
+    VkDescriptorImageInfo prefilteredInfo{};
+    prefilteredInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    prefilteredInfo.imageView   = m_prefilteredImageView;
+    prefilteredInfo.sampler     = m_prefilteredSampler;
+
+    VkDescriptorImageInfo brdfInfo{};
+    brdfInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    brdfInfo.imageView   = m_brdfLutImageView;
+    brdfInfo.sampler     = m_brdfLutSampler;
+
+    writes[6] = makeSamplerWrite(6, irradianceInfo);
+    writes[7] = makeSamplerWrite(7, prefilteredInfo);
+    writes[8] = makeSamplerWrite(8, brdfInfo);
+
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    
 }
 
 void Renderer::destroyDescriptors() {

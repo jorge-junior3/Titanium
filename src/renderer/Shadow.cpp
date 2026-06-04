@@ -110,7 +110,7 @@ void Renderer::createShadowRenderPass() {
     depthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    depthAttachment.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    depthAttachment.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     VkAttachmentReference depthRef{};
     depthRef.attachment = 0;
@@ -354,7 +354,7 @@ void Renderer::createShadowPipeline() {
     std::cout << "Shadow pipeline created!" << std::endl;
 }
 
-glm::mat4 Renderer::getLightSpaceMatrix() {
+glm::mat4 Renderer::getLightSpaceMatrix() const {
     glm::vec3 lightPos = glm::vec3(4.0f, 6.0f, 4.0f);
     glm::vec3 lightTarget = glm::vec3(0.0f);
 

@@ -1,3 +1,5 @@
+// Renderer.cpp
+
 #include "Renderer.h"
 #include "MeshLoader.h"
 #include <iostream>
@@ -59,6 +61,7 @@ void Renderer::initRenderPasses() {
 
 void Renderer::initResources() {
     createCubemap();
+    createIBL();  
     loadPBRTextures();
     createPBRSampler();
     createUniformBuffer();
@@ -106,6 +109,7 @@ void Renderer::loadMesh(const std::vector<Vertex>& vertices,
 void Renderer::destroyPipelines() {
     if (!m_vulkanContext) return;
     destroyShadowResources();
+    destroyIBL();
     destroySkyboxResources();
     destroyHDRResources();
     destroyDescriptors();

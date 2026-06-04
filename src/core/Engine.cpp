@@ -33,6 +33,7 @@ void Engine::run() {
         ubo.view   = m_camera->getView();
         ubo.proj   = m_camera->getProjection();
         ubo.camPos = glm::vec4(m_camera->getPosition(), 1.0f);  // ← must be inside this block
+        ubo.lightSpaceMatrix = m_renderer->getLightSpaceMatrix();
 
         m_renderer->updateUniformBuffer(ubo);
         m_renderer->drawFrame();
