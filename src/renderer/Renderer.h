@@ -249,7 +249,6 @@ private:
     void createHDRPipeline();
     void createTonemapDescriptors();
     void createTonemapPipeline();
-    void createTonemapPass();
     void drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex);
     void destroyHDRResources();
 

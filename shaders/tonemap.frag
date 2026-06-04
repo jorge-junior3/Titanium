@@ -18,51 +18,28 @@ vec3 ACESFilmic(vec3 x) {
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
+vec3 brightSample(vec2 uv, float threshold) {
+    vec3 sampleColor = texture(hdrImage, uv).rgb;
+    return max(sampleColor - vec3(threshold), vec3(0.0));
+}
+
 void main() {
     vec2 texelSize = vec2(1.0) / vec2(textureSize(hdrImage, 0));
-    float threshold = 3.0;
-    float bloomIntensity = 1.8;
+    const float threshold = 3.0;
+    const float bloomIntensity = 1.8;
 
     vec3 hdr = texture(hdrImage, fragUV).rgb;
     vec3 bloom = vec3(0.0);
-    vec3 samp;
-    vec3 bright;
 
-    samp = texture(hdrImage, fragUV + vec2(-1.0, -1.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.0625;
-
-    samp = texture(hdrImage, fragUV + vec2(0.0, -1.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.125;
-
-    samp = texture(hdrImage, fragUV + vec2(1.0, -1.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.0625;
-
-    samp = texture(hdrImage, fragUV + vec2(-1.0, 0.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.125;
-
-    samp = texture(hdrImage, fragUV).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.25;
-
-    samp = texture(hdrImage, fragUV + vec2(1.0, 0.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.125;
-
-    samp = texture(hdrImage, fragUV + vec2(-1.0, 1.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.0625;
-
-    samp = texture(hdrImage, fragUV + vec2(0.0, 1.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.125;
-
-    samp = texture(hdrImage, fragUV + vec2(1.0, 1.0) * texelSize).rgb;
-    bright = max(samp - vec3(threshold), vec3(0.0));
-    bloom += bright * 0.0625;
+    bloom += brightSample(fragUV + vec2(-1.0, -1.0) * texelSize, threshold) * 0.0625;
+    bloom += brightSample(fragUV + vec2(0.0, -1.0) * texelSize, threshold) * 0.125;
+    bloom += brightSample(fragUV + vec2(1.0, -1.0) * texelSize, threshold) * 0.0625;
+    bloom += brightSample(fragUV + vec2(-1.0, 0.0) * texelSize, threshold) * 0.125;
+    bloom += brightSample(fragUV, threshold) * 0.25;
+    bloom += brightSample(fragUV + vec2(1.0, 0.0) * texelSize, threshold) * 0.125;
+    bloom += brightSample(fragUV + vec2(-1.0, 1.0) * texelSize, threshold) * 0.0625;
+    bloom += brightSample(fragUV + vec2(0.0, 1.0) * texelSize, threshold) * 0.125;
+    bloom += brightSample(fragUV + vec2(1.0, 1.0) * texelSize, threshold) * 0.0625;
 
     bloom *= bloomIntensity;
     vec3 combined = hdr + bloom;

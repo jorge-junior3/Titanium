@@ -272,6 +272,11 @@ void Renderer::createTonemapPipeline() {
 }
 
 void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
+    if (imageIndex >= m_framebuffers.size() || m_framebuffers[imageIndex] == VK_NULL_HANDLE)
+        throw std::runtime_error("Invalid framebuffer for tonemap pass");
+    if (m_tonemapPipeline == VK_NULL_HANDLE || m_tonemapPipelineLayout == VK_NULL_HANDLE)
+        throw std::runtime_error("Tonemap pipeline is not initialized");
+
     VkExtent2D extent = swapchainExtent();
     VkClearValue clearValue{};
     clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -344,15 +349,48 @@ void Renderer::drawHDRPass(VkCommandBuffer cmd) {
 
 void Renderer::destroyHDRResources() {
     VkDevice dev = device();
-    vkDestroyPipeline(dev, m_tonemapPipeline, nullptr);
-    vkDestroyPipelineLayout(dev, m_tonemapPipelineLayout, nullptr);
-    vkDestroyRenderPass(dev, m_tonemapRenderPass, nullptr);
-    vkDestroyRenderPass(dev, m_hdrRenderPass, nullptr);
-    vkDestroyDescriptorPool(dev, m_tonemapDescriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(dev, m_tonemapDescriptorSetLayout, nullptr);
-    vkDestroySampler(dev, m_hdrSampler, nullptr);
-    vkDestroyImageView(dev, m_hdrImageView, nullptr);
-    vkDestroyImage(dev, m_hdrImage, nullptr);
-    vkFreeMemory(dev, m_hdrMemory, nullptr);
-    vkDestroyFramebuffer(dev, m_hdrFramebuffer, nullptr);
+    if (m_tonemapPipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(dev, m_tonemapPipeline, nullptr);
+        m_tonemapPipeline = VK_NULL_HANDLE;
+    }
+    if (m_tonemapPipelineLayout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(dev, m_tonemapPipelineLayout, nullptr);
+        m_tonemapPipelineLayout = VK_NULL_HANDLE;
+    }
+    if (m_tonemapRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(dev, m_tonemapRenderPass, nullptr);
+        m_tonemapRenderPass = VK_NULL_HANDLE;
+    }
+    if (m_hdrRenderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(dev, m_hdrRenderPass, nullptr);
+        m_hdrRenderPass = VK_NULL_HANDLE;
+    }
+    if (m_tonemapDescriptorPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(dev, m_tonemapDescriptorPool, nullptr);
+        m_tonemapDescriptorPool = VK_NULL_HANDLE;
+    }
+    if (m_tonemapDescriptorSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(dev, m_tonemapDescriptorSetLayout, nullptr);
+        m_tonemapDescriptorSetLayout = VK_NULL_HANDLE;
+    }
+    if (m_hdrSampler != VK_NULL_HANDLE) {
+        vkDestroySampler(dev, m_hdrSampler, nullptr);
+        m_hdrSampler = VK_NULL_HANDLE;
+    }
+    if (m_hdrImageView != VK_NULL_HANDLE) {
+        vkDestroyImageView(dev, m_hdrImageView, nullptr);
+        m_hdrImageView = VK_NULL_HANDLE;
+    }
+    if (m_hdrImage != VK_NULL_HANDLE) {
+        vkDestroyImage(dev, m_hdrImage, nullptr);
+        m_hdrImage = VK_NULL_HANDLE;
+    }
+    if (m_hdrMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(dev, m_hdrMemory, nullptr);
+        m_hdrMemory = VK_NULL_HANDLE;
+    }
+    if (m_hdrFramebuffer != VK_NULL_HANDLE) {
+        vkDestroyFramebuffer(dev, m_hdrFramebuffer, nullptr);
+        m_hdrFramebuffer = VK_NULL_HANDLE;
+    }
 }
