@@ -1,6 +1,7 @@
 #version 450
 
 layout(binding = 0) uniform ShadowUBO {
+    mat4 model;
     mat4 lightSpaceMatrix;
 } ubo;
 

@@ -1,4 +1,8 @@
 #include "Renderer.h"
+#include "editor/EditorPanels.h"
+#include "imgui.h"
+#include "backends/imgui_impl_vulkan.h"
+#include "backends/imgui_impl_sdl2.h"
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
@@ -299,13 +303,22 @@ void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
             VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float), &m_exposure);
         // fullscreen triangle — 3 vertices, no vertex buffer
         vkCmdDraw(cmd, 3, 1, 0, 0);
+        // render ImGui on top if initialized
+        if (m_imguiDescriptorPool != VK_NULL_HANDLE) {
+            ImGui_ImplSDL2_NewFrame();
+            ImGui_ImplVulkan_NewFrame();
+            ImGui::NewFrame();
+            editor::drawEditorPanels(*this);
+            ImGui::Render();
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+        }
     vkCmdEndRenderPass(cmd);
 }
 
 void Renderer::drawHDRPass(VkCommandBuffer cmd) {
     VkExtent2D extent = swapchainExtent();
     std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color        = VkClearColorValue{{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[0].color        = VkClearColorValue{{m_cachedUBO.skyColor.r, m_cachedUBO.skyColor.g, m_cachedUBO.skyColor.b, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rpInfo{};
@@ -326,7 +339,21 @@ void Renderer::drawHDRPass(VkCommandBuffer cmd) {
             VkDeviceSize offsets[]       = {0};
             vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
             vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+            for (const auto& node : m_sceneNodes) {
+                if (node.type != Renderer::SceneNodeType::Cube)
+                    continue;
+                struct PushConstants {
+                glm::mat4 model;
+                glm::vec4 objectColor;
+            } pc;
+            pc.model = getNodeModelMatrix(node);
+            pc.objectColor = glm::vec4(node.color, 1.0f);
+            vkCmdPushConstants(cmd, m_pipelineLayout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(pc), &pc);
             vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+            }
         }
         drawSkybox(cmd);
     vkCmdEndRenderPass(cmd);

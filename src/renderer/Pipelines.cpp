@@ -116,10 +116,22 @@ void Renderer::createGraphicsPipeline() {
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments    = &blendAttachment;
 
+    struct PushConstants {
+        glm::mat4 model;
+        glm::vec4 objectColor;
+    };
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = sizeof(PushConstants);
+
     VkPipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts    = &m_descriptorSetLayout;
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 1;
+    layoutInfo.pSetLayouts            = &m_descriptorSetLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
     if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create pipeline layout");
 

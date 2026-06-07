@@ -2,6 +2,7 @@
 #include "../renderer/Renderer.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL2/SDL.h>
+#include "backends/imgui_impl_sdl2.h"
 #include <iostream>
 
 Engine::Engine() {
@@ -23,6 +24,7 @@ void Engine::run() {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) quit = true;
             m_camera->processEvent(event);
+            ImGui_ImplSDL2_ProcessEvent(&event);
         }
         if (quit) break;
 
@@ -34,9 +36,19 @@ void Engine::run() {
         ubo.proj   = m_camera->getProjection();
         ubo.camPos = glm::vec4(m_camera->getPosition(), 1.0f);  // ← must be inside this block
         ubo.lightSpaceMatrix = m_renderer->getLightSpaceMatrix();
-        // directional light incoming from above and angled towards +X,+Z
-        ubo.lightDir = glm::vec4(glm::normalize(glm::vec3(0.3f, -1.0f, 0.2f)), 0.0f);
-        ubo.lightColor = glm::vec4(12.0f, 11.2f, 10.4f, 0.0f);
+        // directional light coming from renderer state (editable via ImGui)
+        glm::vec3 ld = m_renderer->getDirectionalLightDir();
+        glm::vec3 lc = m_renderer->getDirectionalLightColor();
+        if (m_renderer->getNormalizeLightDir())
+            ubo.lightDir = glm::vec4(glm::normalize(ld), 0.0f);
+        else
+            ubo.lightDir = glm::vec4(ld, 0.0f);
+        ubo.lightColor = glm::vec4(lc * m_renderer->getLightIntensity(), 0.0f);
+
+        auto atmosphere = m_renderer->getAtmosphereSettings();
+        ubo.skyColor = glm::vec4(atmosphere.skyColor, 1.0f);
+        ubo.fogColor = glm::vec4(atmosphere.fogColor, 1.0f);
+        ubo.fogParams = glm::vec4(atmosphere.fogDensity, atmosphere.enabled ? 1.0f : 0.0f, 0.0f, 0.0f);
 
         m_renderer->updateUniformBuffer(ubo);
         m_renderer->drawFrame();

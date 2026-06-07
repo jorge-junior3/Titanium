@@ -24,9 +24,14 @@ struct UniformBufferObject {
     glm::mat4 lightSpaceMatrix;
     glm::vec4 lightDir;
     glm::vec4 lightColor;
+    glm::vec4 objectColor;
+    glm::vec4 skyColor;
+    glm::vec4 fogColor;
+    glm::vec4 fogParams; // x = density, y = enabled ? 1 : 0
 };
 
 struct ShadowUBO {
+    glm::mat4 model;
     glm::mat4 lightSpaceMatrix;
 };
 
@@ -45,6 +50,50 @@ public:
     void recreateSwapchain();
     void updateUniformBuffer(const UniformBufferObject& ubo);
     glm::mat4 getLightSpaceMatrix() const;
+    void setDirectionalLight(const glm::vec3& dir, const glm::vec3& color);
+    glm::vec3 getDirectionalLightDir() const;
+    glm::vec3 getDirectionalLightColor() const;
+    float getLightIntensity() const;
+    bool getNormalizeLightDir() const;
+    void setLightIntensity(float intensity) { m_lightIntensity = intensity; }
+    void setNormalizeLightDir(bool normalize) { m_normalizeLightDir = normalize; }
+    void setExposure(float e) { m_exposure = e; }
+    float getExposure() const { return m_exposure; }
+
+    enum class SceneNodeType {
+        Cube,
+    };
+
+    struct SceneNode {
+        std::string name;
+        SceneNodeType type = SceneNodeType::Cube;
+        glm::vec3 position = glm::vec3(0.0f);
+        glm::vec3 rotation = glm::vec3(0.0f);
+        glm::vec3 scale    = glm::vec3(1.0f);
+        glm::vec3 color    = glm::vec3(1.0f);
+    };
+
+    struct AtmosphereSettings {
+        bool enabled = true;
+        glm::vec3 skyColor = glm::vec3(0.15f, 0.25f, 0.45f);
+        glm::vec3 fogColor = glm::vec3(0.65f, 0.70f, 0.75f);
+        float fogDensity = 0.02f;
+    };
+
+    const std::vector<SceneNode>& getSceneNodes() const;
+    SceneNode& getSceneNode(size_t index);
+    void addCubeNode(const std::string& name);
+    void removeSceneNode(size_t index);
+    void setSceneNodeName(size_t index, const std::string& name);
+    void setSceneNodeTransform(size_t index, const glm::vec3& position,
+                               const glm::vec3& rotation,
+                               const glm::vec3& scale);
+    void setSceneNodeColor(size_t index, const glm::vec3& color);
+
+    const AtmosphereSettings& getAtmosphereSettings() const;
+    void setAtmosphereSettings(const AtmosphereSettings& settings);
+
+    glm::mat4 getNodeModelMatrix(const SceneNode& node) const;
 
 private:
 
@@ -55,6 +104,8 @@ private:
     void initRenderPasses();
     void initResources();
     void initPipelines();
+    void initImGui();
+    void destroyImGui();
     void initAssets();
 
     // --------------------------------------------------------
@@ -272,7 +323,23 @@ private:
     VkDescriptorPool      m_tonemapDescriptorPool      = VK_NULL_HANDLE;
     VkDescriptorSet       m_tonemapDescriptorSet       = VK_NULL_HANDLE;
 
+    // ImGui
+    VkDescriptorPool      m_imguiDescriptorPool = VK_NULL_HANDLE;
+    SDL_Window*           m_window = nullptr;
+
+    // UI-driven lighting state
+    glm::vec3 m_lightDir = glm::vec3(0.3f, -1.0f, 0.2f);
+    glm::vec3 m_lightColor = glm::vec3(12.0f, 11.2f, 10.4f);
+    float m_lightIntensity = 1.0f;
+    bool m_normalizeLightDir = true;
+
     float m_exposure = 1.0f;
+
+    // Cached per-frame base uniform state (view/proj/light)
+    UniformBufferObject m_cachedUBO{};
+
+    std::vector<SceneNode> m_sceneNodes;
+    AtmosphereSettings m_atmosphere;
 
     // --------------------------------------------------------
     // IBL

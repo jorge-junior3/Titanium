@@ -374,9 +374,8 @@ void Renderer::drawShadowPass(VkCommandBuffer cmd) {
     }
 
     // update shadow UBO
-    ShadowUBO shadowUBO{};
-    shadowUBO.lightSpaceMatrix = getLightSpaceMatrix();
-    memcpy(m_shadowUniformMapped, &shadowUBO, sizeof(shadowUBO));
+    if (m_sceneNodes.empty())
+        return;
 
     VkClearValue clearDepth{};
     clearDepth.depthStencil = {1.0f, 0};
@@ -398,7 +397,16 @@ void Renderer::drawShadowPass(VkCommandBuffer cmd) {
         VkDeviceSize offsets[]       = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+
+        for (const auto& node : m_sceneNodes) {
+            if (node.type != SceneNodeType::Cube)
+                continue;
+            ShadowUBO shadowUBO{};
+            shadowUBO.lightSpaceMatrix = getLightSpaceMatrix();
+            shadowUBO.model = getNodeModelMatrix(node);
+            memcpy(m_shadowUniformMapped, &shadowUBO, sizeof(shadowUBO));
+            vkCmdDrawIndexed(cmd, m_indexCount, 1, 0, 0, 0);
+        }
     vkCmdEndRenderPass(cmd);
 }
 

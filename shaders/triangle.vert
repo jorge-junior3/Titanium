@@ -8,7 +8,16 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 lightSpaceMatrix;
     vec4 lightDir;
     vec4 lightColor;
+    vec4 objectColor;
+    vec4 skyColor;
+    vec4 fogColor;
+    vec4 fogParams;
 } ubo;
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    vec4 objectColor;
+} pc;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;
@@ -27,14 +36,14 @@ layout(location = 6) out vec3 TBN2;
 layout(location = 7) out vec4 fragPosLightSpace;
 
 void main() {
-    vec4 worldPos     = ubo.model * vec4(inPosition, 1.0);
+    vec4 worldPos     = pc.model * vec4(inPosition, 1.0);
     gl_Position       = ubo.proj * ubo.view * worldPos;
     fragPos           = worldPos.xyz;
     fragUV            = inUV;
     camPos            = ubo.camPos.xyz;
     fragPosLightSpace = ubo.lightSpaceMatrix * worldPos;
 
-    mat3 normalMat = mat3(transpose(inverse(ubo.model)));
+    mat3 normalMat = mat3(transpose(inverse(pc.model)));
     vec3 T = normalize(normalMat * inTangent);
     vec3 B = normalize(normalMat * inBitangent);
     vec3 N = normalize(normalMat * inNormal);

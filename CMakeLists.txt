@@ -129,6 +129,7 @@ add_executable(Titanium
   src/renderer/Textures.cpp
   src/renderer/MeshLoader.cpp
   src/renderer/IBL.cpp
+  src/editor/EditorPanels.cpp
 )
 
 # ============================================================

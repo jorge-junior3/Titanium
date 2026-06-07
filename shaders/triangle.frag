@@ -17,7 +17,16 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 lightSpaceMatrix;
     vec4 lightDir;
     vec4 lightColor;
+    vec4 objectColor;
+    vec4 skyColor;
+    vec4 fogColor;
+    vec4 fogParams;
 } ubo;
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    vec4 objectColor;
+} pc;
 
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNormal;
@@ -122,7 +131,7 @@ void main() {
     float metallic  = texture(metallicMap,      fragUV).r;
 
     vec3 N = normalize(TBN * normalTex);
-    vec3 V = normalize(camPos - fragPos);
+    vec3 V = normalize(ubo.camPos.xyz - fragPos);
     vec3 R = reflect(-V, N);
 
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
@@ -163,5 +172,16 @@ void main() {
 
     vec3 ambient = (diffuseIBL + specIBL) * 0.8;
     vec3 color   = ambient + Lo;
+    color *= pc.objectColor.rgb;
+
+    float fogEnabled = ubo.fogParams.y;
+    float fogDensity = ubo.fogParams.x;
+    if (fogEnabled > 0.5) {
+        float distanceToCamera = length(ubo.camPos.xyz - fragPos);
+        float fogFactor = 1.0 - exp(-fogDensity * distanceToCamera);
+        fogFactor = clamp(fogFactor, 0.0, 1.0);
+        color = mix(color, ubo.fogColor.rgb, fogFactor);
+    }
+
     outColor     = vec4(color, 1.0);
 }
