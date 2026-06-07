@@ -1,7 +1,10 @@
 #include "Engine.h"
 #include "../renderer/Renderer.h"
+#include "../editor/EditorPanels.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <SDL2/SDL.h>
+#include "imgui.h"
+#include "backends/imgui_impl_vulkan.h"
 #include "backends/imgui_impl_sdl2.h"
 #include <iostream>
 
@@ -51,6 +54,26 @@ void Engine::run() {
         ubo.fogParams = glm::vec4(atmosphere.fogDensity, atmosphere.enabled ? 1.0f : 0.0f, 0.0f, 0.0f);
 
         m_renderer->updateUniformBuffer(ubo);
+
+        // ---- ImGui frame ----
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        editor::drawEditorPanels(*m_renderer);  // ← draw all panels
+
+        ImGui::Render();
+        // ---- end ImGui frame ----
+        m_renderer->updateUniformBuffer(ubo);
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        editor::drawEditorPanels(*m_renderer);
+
+        ImGui::Render();
+
         m_renderer->drawFrame();
     }
 }

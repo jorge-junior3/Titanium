@@ -1,155 +1,242 @@
+/// editor/EditorPanels.cpp
+
 #include "EditorPanels.h"
 #include "imgui.h"
 #include <string>
-#include <vector>
 #include <cstring>
+#include <cstdio>
 
 namespace editor {
 
-static int g_selectedNode = -1;
-static bool g_selectedAtmosphere = false;
-static int g_lastSelectedNode = -1;
-static bool g_lastSelectedAtmosphere = false;
-static char g_nameBuffer[128] = {};
-static glm::vec3 g_inspectorPosition = glm::vec3(0.0f);
-static glm::vec3 g_inspectorRotation = glm::vec3(0.0f);
-static glm::vec3 g_inspectorScale    = glm::vec3(1.0f);
-static glm::vec3 g_inspectorColor    = glm::vec3(0.8f, 0.8f, 0.8f);
-static Renderer::AtmosphereSettings g_inspectorAtmosphere;
+// ============================================================
+// Editor state — persists across frames
+// ============================================================
 
-static void syncInspectorState(const Renderer& renderer) {
-    if (g_selectedAtmosphere) {
-        g_nameBuffer[0] = '\0';
-        g_lastSelectedAtmosphere = true;
-        g_lastSelectedNode = -1;
-        g_inspectorAtmosphere = renderer.getAtmosphereSettings();
-        return;
+struct EditorState {
+    // selection
+    int  selectedNode       = -1;
+    bool atmosphereSelected = false;
+
+    // inspector local copies — only written to renderer on change
+    char      nameBuffer[128]  = {};
+    glm::vec3 position         = glm::vec3(0.0f);
+    glm::vec3 rotation         = glm::vec3(0.0f);
+    glm::vec3 scale            = glm::vec3(1.0f);
+    glm::vec3 color            = glm::vec3(1.0f);
+    Renderer::AtmosphereSettings atmosphere;
+
+    // track what was last loaded into the inspector so we only
+    // refresh local copies when selection actually changes
+    int  loadedNode            = -2; // -2 = nothing loaded yet
+    bool loadedAtmosphere      = false;
+};
+
+static EditorState s;
+
+// ============================================================
+// Load node data into local inspector buffers
+// Called only when selection changes, not every frame
+// ============================================================
+
+static void loadNode(const Renderer& renderer, int index) {
+    const auto& node = renderer.getSceneNodes()[index];
+    std::strncpy(s.nameBuffer, node.name.c_str(), sizeof(s.nameBuffer) - 1);
+    s.nameBuffer[sizeof(s.nameBuffer) - 1] = '\0';
+    s.position  = node.position;
+    s.rotation  = node.rotation;
+    s.scale     = node.scale;
+    s.color     = node.color;
+    s.loadedNode = index;
+    s.loadedAtmosphere = false;
+}
+
+static void loadAtmosphere(const Renderer& renderer) {
+    s.atmosphere = renderer.getAtmosphereSettings();
+    s.loadedAtmosphere = true;
+    s.loadedNode = -2;
+}
+
+// ============================================================
+// Scene Hierarchy panel
+// ============================================================
+
+static void drawHierarchy(Renderer& renderer) {
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
+    ImGui::SetNextWindowSize(ImVec2(240, 400), ImGuiCond_Once);
+    ImGui::Begin("Scene Hierarchy");
+
+    // Atmosphere entry
+    if (ImGui::Selectable("  Atmosphere", s.atmosphereSelected)) {
+        s.atmosphereSelected = true;
+        s.selectedNode       = -1;
+        s.loadedNode         = -2; // force reload next frame
     }
+
+    ImGui::Separator();
+    ImGui::Text("Objects");
+    ImGui::Separator();
 
     const auto& nodes = renderer.getSceneNodes();
-    if (g_selectedNode < 0 || g_selectedNode >= static_cast<int>(nodes.size())) {
-        g_nameBuffer[0] = '\0';
-        return;
+    for (int i = 0; i < static_cast<int>(nodes.size()); i++) {
+        bool selected = (s.selectedNode == i) && !s.atmosphereSelected;
+
+        // label with index prefix so duplicate names are distinguishable
+        char label[160];
+        std::snprintf(label, sizeof(label), "  [%d] %s", i, nodes[i].name.c_str());
+
+        if (ImGui::Selectable(label, selected)) {
+            s.selectedNode       = i;
+            s.atmosphereSelected = false;
+            s.loadedNode         = -2; // force reload
+        }
     }
 
-    const auto& node = nodes[g_selectedNode];
-    std::strncpy(g_nameBuffer, node.name.c_str(), sizeof(g_nameBuffer) - 1);
-    g_nameBuffer[sizeof(g_nameBuffer) - 1] = '\0';
-    g_inspectorPosition = node.position;
-    g_inspectorRotation = node.rotation;
-    g_inspectorScale = node.scale;
-    g_inspectorColor = node.color;
-    g_lastSelectedNode = g_selectedNode;
-    g_lastSelectedAtmosphere = false;
+    ImGui::Separator();
+
+    if (ImGui::Button("+ Add Cube")) {
+        int newIndex = static_cast<int>(nodes.size());
+        renderer.addCubeNode("Cube " + std::to_string(newIndex + 1));
+        s.selectedNode       = newIndex;
+        s.atmosphereSelected = false;
+        s.loadedNode         = -2;
+    }
+
+    ImGui::SameLine();
+
+    // only show remove if something is selected
+    bool canRemove = s.selectedNode >= 0 &&
+                     s.selectedNode < static_cast<int>(renderer.getSceneNodes().size());
+    if (!canRemove) ImGui::BeginDisabled();
+    if (ImGui::Button("- Remove")) {
+        renderer.removeSceneNode(s.selectedNode);
+        s.selectedNode = -1;
+        s.loadedNode   = -2;
+    }
+    if (!canRemove) ImGui::EndDisabled();
+
+    ImGui::End();
 }
+
+// ============================================================
+// Inspector panel
+// ============================================================
 
 static void drawInspector(Renderer& renderer) {
-    ImGui::SetNextWindowSize(ImVec2(360, 320), ImGuiCond_Once);
+    ImGui::SetNextWindowPos(ImVec2(10, 420), ImGuiCond_Once);
+    ImGui::SetNextWindowSize(ImVec2(360, 340), ImGuiCond_Once);
     ImGui::Begin("Inspector");
 
-    const auto& nodes = renderer.getSceneNodes();
-    if (g_selectedAtmosphere) {
-        if (!g_lastSelectedAtmosphere) {
-            syncInspectorState(renderer);
-        }
+    // ---- Atmosphere inspector ----
+    if (s.atmosphereSelected) {
+        if (!s.loadedAtmosphere)
+            loadAtmosphere(renderer);
 
-        ImGui::Text("Type: Atmosphere");
-        ImGui::Separator();
-        ImGui::Checkbox("Enable Atmosphere", &g_inspectorAtmosphere.enabled);
-        ImGui::ColorEdit3("Sky Color", &g_inspectorAtmosphere.skyColor[0]);
-        ImGui::ColorEdit3("Fog Color", &g_inspectorAtmosphere.fogColor[0]);
-        ImGui::DragFloat("Fog Density", &g_inspectorAtmosphere.fogDensity, 0.005f, 0.0f, 1.0f, "%.3f");
-        if (ImGui::Button("Apply Atmosphere Settings")) {
-            renderer.setAtmosphereSettings(g_inspectorAtmosphere);
-        }
-    } else if (g_selectedNode >= 0 && g_selectedNode < static_cast<int>(nodes.size())) {
-        if (g_lastSelectedNode != g_selectedNode) {
-            syncInspectorState(renderer);
-        }
-
-        const auto& node = renderer.getSceneNode(g_selectedNode);
-        ImGui::InputText("Name", g_nameBuffer, sizeof(g_nameBuffer));
-        renderer.setSceneNodeName(g_selectedNode, g_nameBuffer);
-
-        ImGui::Text("Type: %s", node.type == Renderer::SceneNodeType::Cube ? "Cube" : "Unknown");
+        ImGui::Text("Atmosphere");
         ImGui::Separator();
 
-        if (node.type == Renderer::SceneNodeType::Cube) {
-            if (ImGui::DragFloat3("Position", &g_inspectorPosition[0], 0.1f, -10.0f, 10.0f)) {
-                renderer.setSceneNodeTransform(g_selectedNode, g_inspectorPosition, g_inspectorRotation, g_inspectorScale);
-            }
+        ImGui::Checkbox("Enabled", &s.atmosphere.enabled);
 
-            if (ImGui::DragFloat3("Rotation", &g_inspectorRotation[0], 1.0f, -180.0f, 180.0f)) {
-                renderer.setSceneNodeTransform(g_selectedNode, g_inspectorPosition, g_inspectorRotation, g_inspectorScale);
-            }
+        ImGui::ColorEdit3("Sky Color", &s.atmosphere.skyColor[0]);
+        ImGui::ColorEdit3("Fog Color", &s.atmosphere.fogColor[0]);
+        ImGui::SliderFloat("Fog Density", &s.atmosphere.fogDensity, 0.0f, 1.0f, "%.4f");
 
-            if (ImGui::DragFloat3("Scale", &g_inspectorScale[0], 0.05f, 0.01f, 10.0f)) {
-                renderer.setSceneNodeTransform(g_selectedNode, g_inspectorPosition, g_inspectorRotation, g_inspectorScale);
-            }
+        ImGui::Spacing();
+        if (ImGui::Button("Apply", ImVec2(120, 0)))
+            renderer.setAtmosphereSettings(s.atmosphere);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset", ImVec2(120, 0)))
+            loadAtmosphere(renderer); // reload from renderer
 
-            if (ImGui::ColorEdit3("Color", &g_inspectorColor[0])) {
-                renderer.setSceneNodeColor(g_selectedNode, g_inspectorColor);
-            }
-        }
-    } else {
-        ImGui::Text("No selection.");
+        ImGui::End();
+        return;
     }
 
+    // ---- Node inspector ----
+    const auto& nodes = renderer.getSceneNodes();
+    bool validNode = s.selectedNode >= 0 &&
+                     s.selectedNode < static_cast<int>(nodes.size());
+
+    if (!validNode) {
+        ImGui::TextDisabled("No selection.");
+        ImGui::End();
+        return;
+    }
+
+    // refresh local state only when selection changed
+    if (s.loadedNode != s.selectedNode)
+        loadNode(renderer, s.selectedNode);
+
+    ImGui::Text("Node [%d]", s.selectedNode);
     ImGui::Separator();
-    ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+
+    // name — only push to renderer when editing is finished (Enter/unfocus)
+    if (ImGui::InputText("Name", s.nameBuffer, sizeof(s.nameBuffer),
+                         ImGuiInputTextFlags_EnterReturnsTrue)) {
+        renderer.setSceneNodeName(s.selectedNode, s.nameBuffer);
+    }
+    // also commit on deactivation (click away)
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        renderer.setSceneNodeName(s.selectedNode, s.nameBuffer);
+
+    ImGui::Spacing();
+    ImGui::Text("Transform");
+    ImGui::Separator();
+
+    bool transformChanged = false;
+    transformChanged |= ImGui::DragFloat3("Position", &s.position[0], 0.05f);
+    transformChanged |= ImGui::DragFloat3("Rotation", &s.rotation[0], 0.5f, -180.0f, 180.0f);
+    transformChanged |= ImGui::DragFloat3("Scale",    &s.scale[0],    0.02f, 0.001f, 20.0f);
+
+    // push transform only when the drag is released or value changed
+    // IsItemDeactivatedAfterEdit fires when the user releases the drag
+    if (transformChanged)
+        renderer.setSceneNodeTransform(s.selectedNode, s.position, s.rotation, s.scale);
+
+    ImGui::Spacing();
+    ImGui::Text("Appearance");
+    ImGui::Separator();
+
+    if (ImGui::ColorEdit3("Color", &s.color[0]))
+        renderer.setSceneNodeColor(s.selectedNode, s.color);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // reset button — reloads from renderer
+    if (ImGui::Button("Reset to saved", ImVec2(160, 0)))
+        loadNode(renderer, s.selectedNode);
+
     ImGui::End();
 }
 
-static void drawSceneHierarchyWindow(Renderer& renderer) {
-    ImGui::SetNextWindowSize(ImVec2(280, 320), ImGuiCond_Once);
-    ImGui::Begin("Scene Hierarchy");
-    ImGui::Text("Scene Graph");
-    ImGui::Separator();
+// ============================================================
+// Stats overlay — top right, non-interactive
+// ============================================================
 
-    const auto& nodes = renderer.getSceneNodes();
-    if (nodes.empty()) {
-        ImGui::Text("No nodes in scene.");
-    }
-
-    bool atmosphereSelected = g_selectedAtmosphere;
-    if (ImGui::Selectable("Atmosphere", atmosphereSelected)) {
-        g_selectedAtmosphere = true;
-        g_selectedNode = -1;
-        g_lastSelectedNode = -1;
-        g_lastSelectedAtmosphere = false;
-    }
-
-    ImGui::Separator();
-    for (int i = 0; i < static_cast<int>(nodes.size()); ++i) {
-        bool selected = (g_selectedNode == i) && !g_selectedAtmosphere;
-        if (ImGui::Selectable(nodes[i].name.c_str(), selected)) {
-            g_selectedAtmosphere = false;
-            g_selectedNode = i;
-            g_lastSelectedNode = -1;
-            g_lastSelectedAtmosphere = false;
-        }
-    }
-
-    ImGui::Separator();
-    if (ImGui::Button("Add Cube")) {
-        int newIndex = static_cast<int>(nodes.size());
-        renderer.addCubeNode("Cube " + std::to_string(nodes.size() + 1));
-        g_selectedNode = newIndex;
-        g_lastSelectedNode = -1;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Remove Node") && g_selectedNode >= 0) {
-        renderer.removeSceneNode(g_selectedNode);
-        g_selectedNode = -1;
-        g_lastSelectedNode = -1;
-    }
-
+static void drawStatsOverlay() {
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 200.0f, 10.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(190, 70), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoInputs     |
+        ImGuiWindowFlags_NoNav        |
+        ImGuiWindowFlags_NoMove;
+    ImGui::Begin("##stats", nullptr, flags);
+    ImGui::Text("%.1f FPS  (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
+    ImGui::Text("Display: %.0fx%.0f", io.DisplaySize.x, io.DisplaySize.y);
     ImGui::End();
 }
+
+// ============================================================
+// Public entry point
+// ============================================================
 
 void drawEditorPanels(Renderer& renderer) {
+    drawHierarchy(renderer);
     drawInspector(renderer);
-    drawSceneHierarchyWindow(renderer);
+    drawStatsOverlay();
 }
 
 } // namespace editor

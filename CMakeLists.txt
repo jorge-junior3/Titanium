@@ -161,6 +161,13 @@ target_compile_definitions(Titanium PRIVATE
     ASSETS_PATH="${CMAKE_SOURCE_DIR}/assets/"
 )
 
+add_custom_target(compile_shaders
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/compile_shaders.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Compile GLSL shaders to SPIR-V"
+)
+add_dependencies(Titanium compile_shaders)
+
 add_custom_command(TARGET Titanium POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/shaders

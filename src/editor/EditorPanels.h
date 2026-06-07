@@ -1,3 +1,5 @@
+/// editor/EditorPanels.h
+
 #pragma once
 
 #include "renderer/Renderer.h"

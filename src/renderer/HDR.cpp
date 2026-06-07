@@ -1,5 +1,4 @@
 #include "Renderer.h"
-#include "editor/EditorPanels.h"
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
 #include "backends/imgui_impl_sdl2.h"
@@ -303,13 +302,8 @@ void Renderer::drawTonemapPass(VkCommandBuffer cmd, uint32_t imageIndex) {
             VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float), &m_exposure);
         // fullscreen triangle — 3 vertices, no vertex buffer
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        // render ImGui on top if initialized
+        // render ImGui on top — frame was started by Engine, just submit draw data
         if (m_imguiDescriptorPool != VK_NULL_HANDLE) {
-            ImGui_ImplSDL2_NewFrame();
-            ImGui_ImplVulkan_NewFrame();
-            ImGui::NewFrame();
-            editor::drawEditorPanels(*this);
-            ImGui::Render();
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
         }
     vkCmdEndRenderPass(cmd);
