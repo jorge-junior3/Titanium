@@ -16,6 +16,7 @@ struct EditorState {
     // selection
     int  selectedNode       = -1;
     bool atmosphereSelected = false;
+    GizmoMode gizmoMode      = GizmoMode::Translate;
 
     // inspector local copies — only written to renderer on change
     char      nameBuffer[128]  = {};
@@ -32,6 +33,23 @@ struct EditorState {
 };
 
 static EditorState s;
+
+static void loadNode(const Renderer& renderer, int index);
+
+int getSelectedNode() { return s.selectedNode; }
+
+void setSelectedNode(int node) { s.selectedNode = node; s.atmosphereSelected = false; s.loadedNode = -2; }
+
+GizmoMode getGizmoMode() { return s.gizmoMode; }
+
+void setGizmoMode(GizmoMode mode) { s.gizmoMode = mode; }
+
+void refreshSelectedNodeState(Renderer& renderer) {
+    if (s.selectedNode < 0) return;
+    const auto& nodes = renderer.getSceneNodes();
+    if (s.selectedNode >= 0 && s.selectedNode < static_cast<int>(nodes.size()))
+        loadNode(renderer, s.selectedNode);
+}
 
 // ============================================================
 // Load node data into local inspector buffers
@@ -177,6 +195,18 @@ static void drawInspector(Renderer& renderer) {
     // also commit on deactivation (click away)
     if (ImGui::IsItemDeactivatedAfterEdit())
         renderer.setSceneNodeName(s.selectedNode, s.nameBuffer);
+
+    ImGui::Spacing();
+    ImGui::Text("Gizmo");
+    ImGui::Separator();
+    if (ImGui::RadioButton("Translate", s.gizmoMode == GizmoMode::Translate))
+        s.gizmoMode = GizmoMode::Translate;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Rotate", s.gizmoMode == GizmoMode::Rotate))
+        s.gizmoMode = GizmoMode::Rotate;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Scale", s.gizmoMode == GizmoMode::Scale))
+        s.gizmoMode = GizmoMode::Scale;
 
     ImGui::Spacing();
     ImGui::Text("Transform");

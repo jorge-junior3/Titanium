@@ -61,3 +61,22 @@ struct Mesh {
     std::vector<Vertex>   vertices;
     std::vector<uint32_t> indices;
 };
+struct GizmoVertex {
+    glm::vec3 position;
+    glm::vec3 color;
+
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription b{};
+        b.binding   = 0;
+        b.stride    = sizeof(GizmoVertex);
+        b.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        return b;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(GizmoVertex, position)};
+        attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(GizmoVertex, color)};
+        return attrs;
+    }
+};  

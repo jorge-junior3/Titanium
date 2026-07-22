@@ -130,6 +130,8 @@ add_executable(Titanium
   src/renderer/MeshLoader.cpp
   src/renderer/IBL.cpp
   src/editor/EditorPanels.cpp
+  src/editor/Gizmo.cpp
+  src/renderer/GIzmo.cpp
 )
 
 # ============================================================

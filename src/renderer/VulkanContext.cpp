@@ -1,4 +1,5 @@
 #include "VulkanContext.h"
+#include <algorithm>
 #include <stdexcept>
 #include <iostream>
 
@@ -152,7 +153,16 @@ void VulkanContext::createSwapchain() {
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR; // vsync, always available
 
     // pick extent (resolution)
-    m_swapchainExtent = caps.currentExtent;
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(m_window, &width, &height);
+
+    if (caps.currentExtent.width == 0 || caps.currentExtent.height == 0) {
+        m_swapchainExtent.width  = static_cast<uint32_t>(std::max(1, width));
+        m_swapchainExtent.height = static_cast<uint32_t>(std::max(1, height));
+    } else {
+        m_swapchainExtent = caps.currentExtent;
+    }
     m_swapchainFormat = chosenFormat.format;
 
     uint32_t imageCount = caps.minImageCount + 1;

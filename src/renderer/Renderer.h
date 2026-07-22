@@ -93,6 +93,10 @@ public:
     const AtmosphereSettings& getAtmosphereSettings() const;
     void setAtmosphereSettings(const AtmosphereSettings& settings);
 
+    void updateGizmoBuffers(const std::vector<GizmoVertex>& vertices);
+    void setGizmoNodePos(const glm::vec3& pos);
+    void setGizmoHoveredAxis(int axis);
+
     glm::mat4 getNodeModelMatrix(const SceneNode& node) const;
 
 private:
@@ -338,8 +342,26 @@ private:
     // Cached per-frame base uniform state (view/proj/light)
     UniformBufferObject m_cachedUBO{};
 
+    glm::vec3 m_gizmoNodePos    = glm::vec3(0.0f);
+    int       m_gizmoHoveredAxis = -1;
+
     std::vector<SceneNode> m_sceneNodes;
     AtmosphereSettings m_atmosphere;
+
+    // --------------------------------------------------------
+    // Gizmo pipeline
+    // --------------------------------------------------------
+    void createGizmoPipeline();
+    void drawGizmo(VkCommandBuffer cmd, const glm::mat4& view,
+                   const glm::mat4& proj, const glm::vec3& nodePos,
+                   int hoveredAxis);
+    void destroyGizmoResources();
+
+    VkPipeline       m_gizmoPipeline       = VK_NULL_HANDLE;
+    VkPipelineLayout m_gizmoPipelineLayout = VK_NULL_HANDLE;
+    VkBuffer         m_gizmoVertexBuffer   = VK_NULL_HANDLE;
+    VkDeviceMemory   m_gizmoVertexMemory   = VK_NULL_HANDLE;
+    uint32_t         m_gizmoVertexCount    = 0;
 
     // --------------------------------------------------------
     // IBL

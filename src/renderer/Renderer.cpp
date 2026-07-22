@@ -160,6 +160,7 @@ void Renderer::initResources() {
 
 void Renderer::initPipelines() {
     createGraphicsPipeline();
+    createGizmoPipeline();
     createSkyboxPipeline();
     createTonemapPipeline();
     initImGui();
@@ -266,6 +267,7 @@ void Renderer::loadMesh(const std::vector<Vertex>& vertices,
 void Renderer::destroyPipelines() {
     if (!m_vulkanContext) return;
     destroyShadowResources();
+    destroyGizmoResources();
     destroyIBL();
     destroySkyboxResources();
     destroyHDRResources();
@@ -323,60 +325,73 @@ void Renderer::recreateSwapchain() {
 // ============================================================
 
 void Renderer::drawFrame() {
-    VkDevice device   = m_vulkanContext->getDevice();
-    VkFence  inFlight = m_vulkanContext->getInFlightFence();
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        VkDevice device   = m_vulkanContext->getDevice();
+        VkFence  inFlight = m_vulkanContext->getInFlightFence();
 
-    // wait for previous frame
-    vkWaitForFences(device, 1, &inFlight, VK_TRUE, UINT64_MAX);
+        // wait for previous frame
+        vkWaitForFences(device, 1, &inFlight, VK_TRUE, UINT64_MAX);
 
-    // acquire next swapchain image
-    uint32_t imageIndex;
-    VkResult acquireResult = vkAcquireNextImageKHR(
-        device,
-        m_vulkanContext->getSwapchain(),
-        UINT64_MAX,
-        m_vulkanContext->getImageAvailableSemaphore(),
-        VK_NULL_HANDLE,
-        &imageIndex);
+        // acquire next swapchain image
+        uint32_t imageIndex = 0;
+        VkResult acquireResult = vkAcquireNextImageKHR(
+            device,
+            m_vulkanContext->getSwapchain(),
+            UINT64_MAX,
+            m_vulkanContext->getImageAvailableSemaphore(),
+            VK_NULL_HANDLE,
+            &imageIndex);
 
-    if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
-        recreateSwapchain();
+        if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR ||
+            acquireResult == VK_SUBOPTIMAL_KHR ||
+            acquireResult == VK_ERROR_SURFACE_LOST_KHR ||
+            acquireResult == VK_ERROR_DEVICE_LOST) {
+            recreateSwapchain();
+            continue;
+        }
+        if (acquireResult != VK_SUCCESS) {
+            std::cerr << "Swapchain acquire failed: " << acquireResult << std::endl;
+            return;
+        }
+
+        // only reset fence after we know we're submitting
+        vkResetFences(device, 1, &inFlight);
+
+        // record
+        const auto& cmdBuffers = m_vulkanContext->getCommandBuffers();
+        if (imageIndex >= cmdBuffers.size())
+            throw std::runtime_error("imageIndex out of range for command buffers");
+
+        VkCommandBuffer cmd = cmdBuffers[imageIndex];
+        vkResetCommandBuffer(cmd, 0);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
+            throw std::runtime_error("Failed to begin command buffer");
+
+        drawShadowPass(cmd);
+        drawHDRPass(cmd);
+        drawTonemapPass(cmd, imageIndex);
+
+        if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
+            throw std::runtime_error("Failed to end command buffer");
+
+        // submit and present
+        VkResult submitResult = submitFrame(cmd, imageIndex);
+
+        if (submitResult == VK_ERROR_OUT_OF_DATE_KHR ||
+            submitResult == VK_SUBOPTIMAL_KHR ||
+            submitResult == VK_ERROR_SURFACE_LOST_KHR ||
+            submitResult == VK_ERROR_DEVICE_LOST) {
+            recreateSwapchain();
+            return;
+        }
+        if (submitResult != VK_SUCCESS) {
+            std::cerr << "Swapchain present failed: " << submitResult << std::endl;
+            return;
+        }
         return;
-    }
-    if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
-        throw std::runtime_error("Failed to acquire swapchain image");
-
-    // only reset fence after we know we're submitting
-    vkResetFences(device, 1, &inFlight);
-
-    // record
-    const auto& cmdBuffers = m_vulkanContext->getCommandBuffers();
-    if (imageIndex >= cmdBuffers.size())
-        throw std::runtime_error("imageIndex out of range for command buffers");
-
-    VkCommandBuffer cmd = cmdBuffers[imageIndex];
-    vkResetCommandBuffer(cmd, 0);
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
-        throw std::runtime_error("Failed to begin command buffer");
-
-    drawShadowPass(cmd);
-    drawHDRPass(cmd);
-    drawTonemapPass(cmd, imageIndex);
-
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
-        throw std::runtime_error("Failed to end command buffer");
-
-    // submit and present
-    VkResult submitResult = submitFrame(cmd, imageIndex);
-
-    if (submitResult == VK_ERROR_OUT_OF_DATE_KHR ||
-        submitResult == VK_SUBOPTIMAL_KHR) {
-        recreateSwapchain();
-    } else if (submitResult != VK_SUCCESS) {
-        throw std::runtime_error("Failed to present swapchain image");
     }
 }
 
@@ -386,3 +401,6 @@ void Renderer::updateUniformBuffer(const UniformBufferObject& ubo) {
     m_cachedUBO = ubo;
     memcpy(m_uniformMapped, &ubo, sizeof(ubo));
 }
+
+void Renderer::setGizmoNodePos(const glm::vec3& pos) { m_gizmoNodePos = pos; }
+void Renderer::setGizmoHoveredAxis(int axis)          { m_gizmoHoveredAxis = axis; }

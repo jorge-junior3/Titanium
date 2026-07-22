@@ -350,6 +350,14 @@ void Renderer::drawHDRPass(VkCommandBuffer cmd) {
             }
         }
         drawSkybox(cmd);
+        // draw gizmo last in HDR pass — no depth test so always on top
+        if (m_gizmoVertexBuffer != VK_NULL_HANDLE) {
+            drawGizmo(cmd,
+                      m_cachedUBO.view,
+                      m_cachedUBO.proj,
+                      m_gizmoNodePos,
+                      m_gizmoHoveredAxis);
+}
     vkCmdEndRenderPass(cmd);
 
     VkImageMemoryBarrier hdrBarrier{};
